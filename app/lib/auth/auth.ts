@@ -9,8 +9,8 @@ import {
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
-import { db } from "./db";
-import type { WorkspaceUser } from "./types";
+import { db } from "@/app/lib/db/db";
+import type { WorkspaceUser } from "@/app/lib/types";
 
 const SESSION_COOKIE = "wax_session";
 const REMEMBERED_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -77,7 +77,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 
   const row = db
     .prepare(
-      `SELECT u.id, u.name, u.email, m.role, m.workspace_id, w.name AS workspace_name, s.expires_at
+      `SELECT u.id, u.name, u.email, u.phone, u.phone_verified_at,
+              m.role, m.workspace_id, w.name AS workspace_name, s.expires_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        JOIN memberships m ON m.user_id = u.id AND m.workspace_id = s.workspace_id
@@ -100,6 +101,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     role: String(row.role) as SessionUser["role"],
     workspaceId: String(row.workspace_id),
     workspaceName: String(row.workspace_name),
+    phone: row.phone ? String(row.phone) : null,
+    phoneVerified: Boolean(row.phone_verified_at),
   };
 }
 

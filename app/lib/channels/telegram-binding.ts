@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { db } from "../db";
+import { db } from "@/app/lib/db/db";
 
 /**
  * Telegram delivers every update for a bot to a single webhook URL, so the bot

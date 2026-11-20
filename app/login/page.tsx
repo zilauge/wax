@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Login from "../auth/login";
+import Login from "@/app/components/auth/login";
 
 export const metadata: Metadata = {
   title: "Sign in — Wax",

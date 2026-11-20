@@ -3,8 +3,15 @@ import { NextResponse } from "next/server";
 import {
   countTelegramBindings,
   resolveTelegramBinding,
-} from "../../../lib/channels/telegram-binding";
-import { db } from "../../../lib/db";
+} from "@/app/lib/channels/telegram-binding";
+import {
+  attachIdentity,
+  findIdentityAcrossChannels,
+  findIdentityInChannel,
+} from "@/app/lib/contacts/identities";
+import { db } from "@/app/lib/db/db";
+import { normalizeIdentity } from "@/app/lib/contacts/identity";
+import { publishWorkspaceEvent } from "@/app/lib/workspace/realtime";
 
 type TelegramUpdate = {
   update_id?: number;
@@ -74,22 +81,82 @@ export async function POST(request: Request) {
     (sender?.username ? `@${sender.username}` : `Telegram ${chatKey}`);
   const handle = sender?.username ? `@${sender.username}` : chatKey;
 
-  let contact = db
-    .prepare(
-      "SELECT id FROM contacts WHERE workspace_id = ? AND telegram_chat_id = ?",
-    )
-    .get(workspaceId, chatKey);
+  // Resolve the sender through the identity table first: a known handle on
+  // Telegram, then the chat id, then the same handle on another channel (the
+  // same person writing from Instagram, for example). Only then fall back to
+  // the legacy telegram_chat_id column, and finally create a new contact.
+  const handleAddress = sender?.username
+    ? normalizeIdentity(`@${sender.username}`)
+    : null;
+  const chatAddress = normalizeIdentity(chatKey);
 
-  if (!contact) {
-    const contactId = randomUUID();
+  let resolvedContactId: string | null =
+    (handleAddress &&
+      findIdentityInChannel(
+        db,
+        workspaceId,
+        "telegram",
+        handleAddress.address,
+      )?.contactId) ||
+    (chatAddress &&
+      findIdentityInChannel(db, workspaceId, "telegram", chatAddress.address)
+        ?.contactId) ||
+    null;
+
+  if (!resolvedContactId && handleAddress) {
+    resolvedContactId =
+      findIdentityAcrossChannels(
+        db,
+        workspaceId,
+        handleAddress.address,
+        "telegram",
+      )?.contactId ?? null;
+  }
+
+  if (!resolvedContactId) {
+    const legacy = db
+      .prepare(
+        "SELECT id FROM contacts WHERE workspace_id = ? AND telegram_chat_id = ?",
+      )
+      .get(workspaceId, chatKey);
+    if (legacy) resolvedContactId = String(legacy.id);
+  }
+
+  if (!resolvedContactId) {
+    const newContactId = randomUUID();
     db.prepare(
       `INSERT INTO contacts (id, workspace_id, name, handle, company, color, telegram_chat_id)
        VALUES (?, ?, ?, ?, 'Telegram contact', '#2aabee', ?)`,
-    ).run(contactId, workspaceId, senderName, handle, chatKey);
-    contact = { id: contactId };
+    ).run(newContactId, workspaceId, senderName, handle, chatKey);
+    resolvedContactId = newContactId;
   }
 
-  const contactId = String(contact.id);
+  const contactId = resolvedContactId;
+
+  // Keep the identity table in step with the message: both the public handle
+  // and the chat id are attached to the resolved contact, and the chat id is
+  // recorded for outbound delivery when this contact has none yet.
+  if (handleAddress) {
+    attachIdentity(db, {
+      workspaceId,
+      contactId,
+      channelId: "telegram",
+      raw: handleAddress.address,
+    });
+  }
+  if (chatAddress) {
+    attachIdentity(db, {
+      workspaceId,
+      contactId,
+      channelId: "telegram",
+      raw: chatAddress.address,
+    });
+  }
+
+  db.prepare(
+    `UPDATE contacts SET telegram_chat_id = COALESCE(telegram_chat_id, ?)
+     WHERE id = ? AND workspace_id = ?`,
+  ).run(chatKey, contactId, workspaceId);
 
   let conversation = db
     .prepare(
@@ -150,6 +217,12 @@ export async function POST(request: Request) {
          sla_due_at = COALESCE(sla_due_at, ?)
      WHERE id = ?`,
   ).run(receivedAt, receivedAt + slaMinutes * 60_000, conversationId);
+
+  publishWorkspaceEvent(workspaceId, {
+    kind: "message",
+    conversationId,
+    text: `New Telegram message from ${senderName}`,
+  });
 
   return NextResponse.json({ ok: true });
 }

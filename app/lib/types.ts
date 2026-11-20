@@ -13,7 +13,15 @@ export type Channel = {
   monogram: string;
   color: string;
   connected: boolean;
+  /** Whether the server holds the credentials needed to start a connection. */
+  configured: boolean;
   unread: number;
+};
+
+/** A social account this workspace has linked through the provider's OAuth. */
+export type ChannelConnection = {
+  channel: ChannelId;
+  accountName: string | null;
 };
 
 export type MessageAuthor = "agent" | "contact";
@@ -25,6 +33,10 @@ export type Message = {
   author: MessageAuthor;
   text: string;
   time: string;
+  /** Creation time, so a customer's merged history can be ordered. */
+  at: number;
+  /** The thread's channel, which can differ from the active thread once merged. */
+  channel: ChannelId;
   /** Delivery outcome for agent messages; seeded inbound messages are "sent". */
   status: MessageStatus;
   error?: string | null;
@@ -33,10 +45,25 @@ export type Message = {
 export type ConversationStatus = "open" | "pending" | "resolved";
 
 export type Contact = {
+  id: string;
   name: string;
   handle: string;
   company: string;
   color: string;
+};
+
+/** One address a contact is reachable at on one channel. */
+export type ContactIdentity = {
+  id: string;
+  channel: ChannelId;
+  address: string;
+};
+
+/** A contact plus every identity it owns, for the inbox identity strip. */
+export type WorkspaceContact = Contact & {
+  /** The channel of its most recent thread, used for avatars and filters. */
+  channel: ChannelId;
+  identities: ContactIdentity[];
 };
 
 export type PresenceStatus = "available" | "busy" | "away";
@@ -126,6 +153,9 @@ export type WorkspaceUser = {
   email: string;
   role: "owner" | "admin" | "agent";
   workspaceName: string;
+  /** The mobile number used for calls, and whether its one-time code passed. */
+  phone: string | null;
+  phoneVerified: boolean;
 };
 
 /** Headline totals that the metric cards and navigation badges share. */
@@ -145,10 +175,35 @@ export type TelegramRouting = {
   tokenConfigured: boolean;
 };
 
+/**
+ * One message on the dashboard's live channel. `ready` and `tick` are sent by
+ * the stream itself; the rest are published by the writes that cause them.
+ */
+export type RealtimeEventKind =
+  | "ready"
+  | "tick"
+  | "message"
+  | "assignment"
+  | "sla"
+  | "status"
+  | "call"
+  | "presence"
+  | "contact";
+
+export type RealtimeEvent = {
+  kind: RealtimeEventKind;
+  text: string;
+  conversationId?: string;
+  callId?: string;
+  at: number;
+};
+
 /** Everything the dashboard renders, read from a single server-side load. */
 export type WorkspaceData = {
   channels: Channel[];
+  connections: ChannelConnection[];
   conversations: Conversation[];
+  contacts: WorkspaceContact[];
   calls: Call[];
   meetings: Meeting[];
   agents: Agent[];

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { isIP } from "node:net";
-import { db } from "./db";
+import { db } from "@/app/lib/db/db";
 
 /**
  * Brute-force protection for the sign-in form, on two axes:

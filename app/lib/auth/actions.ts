@@ -8,15 +8,16 @@ import {
   destroySession,
   hashPassword,
   verifyPassword,
-} from "./auth";
-import { db } from "./db";
+} from "@/app/lib/auth/auth";
+import { db } from "@/app/lib/db/db";
 import {
   checkLoginThrottle,
   clearLoginFailures,
   clientIpFrom,
   recordFailedLogin,
-} from "./login-throttle";
-import { provisionWorkspace } from "./seed";
+} from "@/app/lib/auth/login-throttle";
+import { provisionWorkspace } from "@/app/lib/workspace/seed";
+import { normalizePhone } from "@/app/lib/auth/phone";
 
 export type AuthState = { error?: string };
 
@@ -77,7 +78,7 @@ export async function signInAction(
 
   clearLoginFailures(email);
   await createSession(String(user.id), String(membership.workspace_id), remember);
-  redirect("/");
+  redirect("/inbox");
 }
 
 export async function signUpAction(
@@ -87,11 +88,19 @@ export async function signUpAction(
   const name = String(formData.get("name") ?? "").trim();
   const company = String(formData.get("company") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const phoneInput = String(formData.get("phone") ?? "").trim();
+  const phone = normalizePhone(phoneInput);
   const password = String(formData.get("password") ?? "");
   const acceptedTerms = formData.get("acceptedTerms") === "on";
 
   if (!name || !email || !password) {
     return { error: "Please fill in your name, email and password." };
+  }
+  if (!phone) {
+    return {
+      error:
+        "Enter a mobile number in international format, for example +14155550134.",
+    };
   }
   if (!EMAIL_PATTERN.test(email)) {
     return { error: "Please enter a valid work email address." };
@@ -115,9 +124,9 @@ export async function signUpAction(
   const { hash, salt } = hashPassword(password);
 
   db.prepare(
-    `INSERT INTO users (id, email, name, company, password_hash, password_salt, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(userId, email, name, company, hash, salt, Date.now());
+    `INSERT INTO users (id, email, name, company, password_hash, password_salt, phone, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(userId, email, name, company, hash, salt, phone, Date.now());
 
   const workspaceId = provisionWorkspace({
     userId,
@@ -126,7 +135,8 @@ export async function signUpAction(
   });
 
   await createSession(userId, workspaceId, false);
-  redirect("/");
+  // New accounts land on onboarding: verify the mobile number, then link feeds.
+  redirect("/connect");
 }
 
 export async function signOutAction() {
