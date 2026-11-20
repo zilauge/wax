@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isIP } from "node:net";
 import { db } from "./db";
 
 /**
@@ -17,6 +18,13 @@ import { db } from "./db";
  * successes reset the IP budget, an attacker holding one valid login could erase
  * the evidence of every other guess. State lives in SQLite so a restart does not
  * hand an attacker a fresh budget.
+ *
+ * The client axis needs a real address. When neither proxy header carries a
+ * valid IP there is no way to tell two clients apart, so the IP scope is skipped
+ * entirely instead of pooling every visitor under one shared key — a single
+ * shared bucket would let a handful of typos lock the whole app out. Without an
+ * address the account limit, which is the one that actually protects a password,
+ * still applies and is unchanged.
  */
 type Policy = {
   maxAttempts: number;
@@ -60,14 +68,41 @@ function clientScope(ip: string): Scope {
   return { key: `ip:${ip}`, policy: CLIENT_POLICY };
 }
 
-/** Best-effort client address; behind a proxy the first X-Forwarded-For entry. */
-export function clientIpFrom(headers: Headers): string {
+/**
+ * Parses one address header value, returning null rather than inventing a key:
+ * a proxy may append a port, bracket IPv6, or forward a non-address placeholder.
+ */
+function normalizeIp(value: string | null): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+
+  if (raw.startsWith("[")) {
+    const end = raw.indexOf("]");
+    const inner = end === -1 ? raw.slice(1) : raw.slice(1, end);
+    return isIP(inner) === 6 ? inner : null;
+  }
+
+  if (isIP(raw)) return raw;
+
+  // Some proxies forward "1.2.3.4:5678"; the port is not part of the identity.
+  const withoutPort = raw.replace(/:\d+$/, "");
+  return isIP(withoutPort) ? withoutPort : null;
+}
+
+/**
+ * Best-effort client address; behind a proxy the first X-Forwarded-For entry.
+ * Returns null when no header carries a usable address, so callers can tell
+ * "we don't know who this is" from a real, doubly-shared "unknown" bucket.
+ */
+export function clientIpFrom(headers: Headers): string | null {
   const forwarded = headers.get("x-forwarded-for");
   if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first;
+    const first = forwarded.split(",")[0] ?? "";
+    const ip = normalizeIp(first);
+    if (ip) return ip;
   }
-  return headers.get("x-real-ip")?.trim() || "unknown";
+
+  return normalizeIp(headers.get("x-real-ip"));
 }
 
 function readAttempt(key: string): AttemptRow | null {
@@ -141,12 +176,25 @@ function firstLocked(states: ThrottleState[]): ThrottleState {
   return states.find((state) => state.locked) ?? { locked: false, retryAfterSeconds: 0 };
 }
 
-export function checkLoginThrottle(email: string, ip: string): ThrottleState {
-  return firstLocked([checkScope(accountScope(email)), checkScope(clientScope(ip))]);
+/** The account scope always applies; the client scope only when an IP is known. */
+function scopesFor(email: string, ip: string | null): Scope[] {
+  const scopes = [accountScope(email)];
+  if (ip) scopes.push(clientScope(ip));
+  return scopes;
 }
 
-export function recordFailedLogin(email: string, ip: string): ThrottleState {
-  return firstLocked([bumpScope(accountScope(email)), bumpScope(clientScope(ip))]);
+export function checkLoginThrottle(
+  email: string,
+  ip: string | null,
+): ThrottleState {
+  return firstLocked(scopesFor(email, ip).map(checkScope));
+}
+
+export function recordFailedLogin(
+  email: string,
+  ip: string | null,
+): ThrottleState {
+  return firstLocked(scopesFor(email, ip).map(bumpScope));
 }
 
 /** Clears the account counter only; the client counter keeps counting. */
