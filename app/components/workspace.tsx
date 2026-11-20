@@ -14,8 +14,11 @@ import type {
 import { signOutAction } from "../lib/auth-actions";
 import { sendMessageAction } from "../lib/inbox-actions";
 import {
+  assignCallAction,
   assignConversationAction,
+  moveCallToQueueAction,
   moveToQueueAction,
+  setConversationStatusAction,
   setPresenceAction,
 } from "../lib/workspace-actions";
 import {
@@ -186,12 +189,45 @@ export default function Workspace({
     router.refresh();
   }
 
+  async function changeStatus(
+    conversationId: string,
+    status: Conversation["status"],
+  ) {
+    setWorkflowError(null);
+    const result = await setConversationStatusAction(conversationId, status);
+    if (!result.ok) {
+      setWorkflowError(result.error);
+      return;
+    }
+    router.refresh();
+  }
+
   async function changePresence(status: PresenceStatus) {
     const previous = presence;
     setPresence(status);
     const result = await setPresenceAction(status);
     if (!result.ok) {
       setPresence(previous);
+      setWorkflowError(result.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function changeCallAssignee(callId: string, userId: string) {
+    setWorkflowError(null);
+    const result = await assignCallAction(callId, userId || null);
+    if (!result.ok) {
+      setWorkflowError(result.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function changeCallQueue(callId: string, queueId: string) {
+    setWorkflowError(null);
+    const result = await moveCallToQueueAction(callId, queueId);
+    if (!result.ok) {
       setWorkflowError(result.error);
       return;
     }
@@ -410,6 +446,15 @@ export default function Workspace({
               <LiveDot />
               {summary.callsInProgress} calls live
             </span>
+            {summary.breachedSlas > 0 && (
+              <span
+                className="hidden items-center gap-1.5 rounded-full border border-rose-400/20 bg-rose-400/10 px-2.5 py-1.5 text-[11px] font-medium text-rose-300 sm:flex"
+                title="Unresolved conversations past their first-reply deadline"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                {summary.breachedSlas} SLA breached
+              </span>
+            )}
             <button
               type="button"
               aria-label="Notifications"
@@ -474,10 +519,21 @@ export default function Workspace({
                   queues={queues}
                   onAssign={changeAssignee}
                   onMoveQueue={changeQueue}
+                  onStatusChange={changeStatus}
                   workflowError={workflowError}
                 />
               )}
-              {tab === "calls" && <CallsPanel calls={calls} channelMap={channelMap} />}
+              {tab === "calls" && (
+                <CallsPanel
+                  calls={calls}
+                  channelMap={channelMap}
+                  agents={agents}
+                  queues={queues}
+                  onAssign={changeCallAssignee}
+                  onMoveQueue={changeCallQueue}
+                  workflowError={workflowError}
+                />
+              )}
               {tab === "meetings" && (
                 <MeetingsPanel
                   meetings={meetings}

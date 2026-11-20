@@ -328,6 +328,9 @@ export async function getWorkspaceData(
     ).length,
     callsInProgress: calls.length,
     meetingsToday: meetings.length,
+    breachedSlas: conversations.filter(
+      (conversation) => conversation.sla?.state === "breached",
+    ).length,
   };
 
   const waitingCalls = calls.filter((call) => call.state === "waiting").length;

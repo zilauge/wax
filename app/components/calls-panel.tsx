@@ -1,4 +1,6 @@
-import type { Call, Channel, ChannelId } from "../lib/types";
+"use client";
+
+import type { Agent, Call, Channel, ChannelId, Queue } from "../lib/types";
 import { ChannelTile, PanelHeader, primaryButtonClass } from "./ui";
 import { ClockIcon, HeadphonesIcon, PlusIcon } from "./icons";
 
@@ -7,6 +9,9 @@ const callStateStyles: Record<Call["state"], string> = {
   ringing: "border-indigo-400/25 bg-indigo-400/10 text-indigo-300",
   waiting: "border-amber-400/25 bg-amber-400/10 text-amber-300",
 };
+
+const selectClass =
+  "max-w-[8.5rem] cursor-pointer rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
 const callStats = [
   { label: "Answered today", value: "148" },
@@ -17,9 +22,19 @@ const callStats = [
 export default function CallsPanel({
   calls,
   channelMap,
+  agents,
+  queues,
+  onAssign,
+  onMoveQueue,
+  workflowError,
 }: {
   calls: Call[];
   channelMap: Record<ChannelId, Channel>;
+  agents: Agent[];
+  queues: Queue[];
+  onAssign: (callId: string, userId: string) => void;
+  onMoveQueue: (callId: string, queueId: string) => void;
+  workflowError: string | null;
 }) {
   const waiting = calls.filter((call) => call.state === "waiting").length;
 
@@ -35,6 +50,14 @@ export default function CallsPanel({
           </button>
         }
       />
+      {workflowError && (
+        <p
+          role="alert"
+          className="border-b border-white/[0.06] px-4 py-2 text-[11px] text-rose-400"
+        >
+          {workflowError}
+        </p>
+      )}
       <ul className="divide-y divide-white/[0.04]">
         {calls.map((call) => {
           const channel = channelMap[call.channel];
@@ -61,14 +84,39 @@ export default function CallsPanel({
                 <ClockIcon className="h-3.5 w-3.5" />
                 {call.hold}
               </span>
-              <span className="hidden items-center gap-1.5 text-[11px] text-slate-500 sm:flex">
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ backgroundColor: call.queueColor ?? "#475569" }}
                 />
-                {call.queueName ?? "No queue"}
-                {call.assigneeName ? ` · ${call.assigneeName}` : ""}
-              </span>
+                <select
+                  value={call.queueId ?? ""}
+                  onChange={(event) => onMoveQueue(call.id, event.target.value)}
+                  disabled={!call.queueId}
+                  aria-label={`Queue for ${call.caller}`}
+                  className={selectClass}
+                >
+                  {!call.queueId && <option value="">No queue</option>}
+                  {queues.map((queue) => (
+                    <option key={queue.id} value={queue.id}>
+                      {queue.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={call.assigneeId ?? ""}
+                  onChange={(event) => onAssign(call.id, event.target.value)}
+                  aria-label={`Assignee for ${call.caller}`}
+                  className={selectClass}
+                >
+                  <option value="">Unassigned</option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"

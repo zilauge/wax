@@ -62,6 +62,10 @@ type InboxPanelProps = {
   queues: Queue[];
   onAssign: (conversationId: string, userId: string) => void;
   onMoveQueue: (conversationId: string, queueId: string) => void;
+  onStatusChange: (
+    conversationId: string,
+    status: Conversation["status"],
+  ) => void;
   workflowError: string | null;
 };
 
@@ -84,6 +88,7 @@ export default function InboxPanel({
   queues,
   onAssign,
   onMoveQueue,
+  onStatusChange,
   workflowError,
 }: InboxPanelProps) {
   const activeChannel = channelMap[active.channel];
@@ -203,11 +208,21 @@ export default function InboxPanel({
             </p>
           </div>
           <div className="ml-auto flex items-center gap-1.5">
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize ${statusStyles[active.status]}`}
+            <select
+              value={active.status}
+              onChange={(event) =>
+                onStatusChange(
+                  active.id,
+                  event.target.value as Conversation["status"],
+                )
+              }
+              aria-label="Conversation status"
+              className={`cursor-pointer appearance-none rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize focus:outline-none ${statusStyles[active.status]}`}
             >
-              {active.status}
-            </span>
+              <option value="open">Open</option>
+              <option value="pending">Pending</option>
+              <option value="resolved">Resolved</option>
+            </select>
             <button
               type="button"
               aria-label="Start a call"

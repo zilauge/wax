@@ -19,12 +19,18 @@ import { db } from "./db";
  * the evidence of every other guess. State lives in SQLite so a restart does not
  * hand an attacker a fresh budget.
  *
- * The client axis needs a real address. When neither proxy header carries a
- * valid IP there is no way to tell two clients apart, so the IP scope is skipped
- * entirely instead of pooling every visitor under one shared key — a single
- * shared bucket would let a handful of typos lock the whole app out. Without an
- * address the account limit, which is the one that actually protects a password,
- * still applies and is unchanged.
+ * The client axis needs an address the client cannot choose. Proxy headers are
+ * only read when the deployment opts in with WAX_TRUST_PROXY_HEADERS (behind a
+ * proxy that overwrites them). Otherwise they are ignored: Next only fills
+ * x-forwarded-for from the socket when the request did not already carry one, so
+ * a header value is indistinguishable from one the caller forged — trusting it
+ * would let a direct client rotate the header and get a fresh 20-attempt budget
+ * per request.
+ *
+ * With no trustworthy address the IP scope is skipped entirely instead of
+ * pooling every visitor under one shared key, which would let a handful of typos
+ * lock the whole app out. The account limit, which is what actually protects a
+ * password, always applies and is unchanged.
  */
 type Policy = {
   maxAttempts: number;
@@ -90,11 +96,24 @@ function normalizeIp(value: string | null): string | null {
 }
 
 /**
- * Best-effort client address; behind a proxy the first X-Forwarded-For entry.
- * Returns null when no header carries a usable address, so callers can tell
- * "we don't know who this is" from a real, doubly-shared "unknown" bucket.
+ * Whether a reverse proxy in front of the app is trusted to state the client
+ * address. Off by default; enable it only when the proxy overwrites (rather than
+ * appends to) X-Forwarded-For, otherwise clients keep control of the value.
+ */
+function trustsProxyHeaders() {
+  const value = process.env.WAX_TRUST_PROXY_HEADERS?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
+}
+
+/**
+ * Best-effort client address; behind a trusted proxy the first X-Forwarded-For
+ * entry, then X-Real-IP. Returns null when proxy headers are not trusted or none
+ * carries a usable address, so callers can tell "we don't know who this is" from
+ * a real, doubly-shared "unknown" bucket.
  */
 export function clientIpFrom(headers: Headers): string | null {
+  if (!trustsProxyHeaders()) return null;
+
   const forwarded = headers.get("x-forwarded-for");
   if (forwarded) {
     const first = forwarded.split(",")[0] ?? "";

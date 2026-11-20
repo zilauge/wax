@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Workspace from "./components/workspace";
 import { requireUser } from "./lib/auth";
+import { escalateBreaches } from "./lib/escalation";
 import { getWorkspaceData } from "./lib/store";
 
 export default function Home() {
@@ -13,6 +14,10 @@ export default function Home() {
 
 async function Dashboard() {
   const user = await requireUser();
+
+  // Hand overdue, unowned threads to an available teammate before rendering.
+  escalateBreaches(user.workspaceId);
+
   const data = await getWorkspaceData(user.workspaceId);
 
   return <Workspace data={data} user={user} />;

@@ -133,6 +133,8 @@ export type Summary = {
   openConversations: number;
   callsInProgress: number;
   meetingsToday: number;
+  /** Unresolved conversations whose first-reply deadline has passed. */
+  breachedSlas: number;
 };
 
 /** Which bot feeds this workspace, and whether outbound sending is configured. */
