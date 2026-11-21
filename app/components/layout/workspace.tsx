@@ -19,7 +19,10 @@ import {
   mergeContactsAction,
   unlinkContactIdentityAction,
 } from "@/app/lib/contacts/actions";
-import { sendMessageAction } from "@/app/lib/inbox/actions";
+import {
+  sendMessageAction,
+  sendTemplateAction,
+} from "@/app/lib/inbox/actions";
 import {
   assignCallAction,
   assignConversationAction,
@@ -31,6 +34,7 @@ import {
 import {
   ArrowUpRightIcon,
   BellIcon,
+  CalendarIcon,
   ChartIcon,
   CheckIcon,
   InboxIcon,
@@ -43,17 +47,32 @@ import {
   VideoIcon,
 } from "@/app/components/shared/icons";
 import { Avatar, ChannelTile, LiveDot, initials } from "@/app/components/shared/ui";
+import type { TimeBlock, WeeklyHours } from "@/app/lib/calendar/rules";
+import CalendarPanel from "@/app/components/calendar/calendar-panel";
 import InboxPanel from "@/app/components/inbox/inbox-panel";
 import CallsPanel from "@/app/components/calls/calls-panel";
 import MeetingsPanel from "@/app/components/meetings/meetings-panel";
 import RightRail from "@/app/components/layout/right-rail";
 import SettingsPanel from "@/app/components/settings/settings-panel";
 
-export type DeskTab = "inbox" | "calls" | "meetings" | "settings";
+export type DeskTab = "inbox" | "calendar" | "calls" | "meetings" | "settings";
 type TabId = DeskTab;
+
+export type CalendarData = {
+  blocks: TimeBlock[];
+  hours: WeeklyHours;
+  agents: { id: string; name: string }[];
+  today: number;
+  weekStart: number;
+  weekLabel: string;
+  prevWeek: string;
+  nextWeek: string;
+  thisWeek: string;
+};
 
 const tabs: { id: TabId; label: string; icon: typeof InboxIcon }[] = [
   { id: "inbox", label: "Inbox", icon: InboxIcon },
+  { id: "calendar", label: "Calendar", icon: CalendarIcon },
   { id: "calls", label: "Calls", icon: PhoneIcon },
   { id: "meetings", label: "Meetings", icon: VideoIcon },
 ];
@@ -96,12 +115,14 @@ export default function Workspace({
   tab,
   initialChannel = "all",
   notice = null,
+  calendar = null,
 }: {
   data: WorkspaceData;
   user: WorkspaceUser;
   tab: DeskTab;
   initialChannel?: ChannelId | "all";
   notice?: string | null;
+  calendar?: CalendarData | null;
 }) {
   const {
     channels,
@@ -113,6 +134,7 @@ export default function Workspace({
     agents,
     queues,
     telegram,
+    channelAudit,
     metrics,
     summary,
   } = data;
@@ -130,6 +152,7 @@ export default function Workspace({
     inbox: summary.openConversations,
     calls: summary.callsInProgress,
     meetings: summary.meetingsToday,
+    calendar: 0,
     settings: 0,
   };
 
@@ -373,7 +396,11 @@ export default function Workspace({
     setSending(true);
     setSendError(null);
 
-    const result = await sendMessageAction(active.id, text);
+    const nonce =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}`;
+    const result = await sendMessageAction(active.id, text, nonce);
     setSending(false);
 
     if (!result.ok) {
@@ -386,6 +413,35 @@ export default function Workspace({
       [active.id]: [...(previous[active.id] ?? []), result.message],
     }));
     setDraft("");
+    router.refresh();
+  }
+
+  async function sendTemplate(input: {
+    name: string;
+    language: string;
+    params: string[];
+  }) {
+    if (!active || sending) return;
+
+    setSending(true);
+    setSendError(null);
+
+    const nonce =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}`;
+    const result = await sendTemplateAction(active.id, input, nonce);
+    setSending(false);
+
+    if (!result.ok) {
+      setSendError(result.error);
+      return;
+    }
+
+    setOptimistic((previous) => ({
+      ...previous,
+      [active.id]: [...(previous[active.id] ?? []), result.message],
+    }));
     router.refresh();
   }
 
@@ -488,8 +544,14 @@ export default function Workspace({
                   <CheckIcon className="h-3 w-3 text-emerald-400/70" />
                 )
               ) : (
-                <span className="text-[10px] font-medium text-indigo-400">
-                  Connect
+                <span
+                  className={`text-[10px] font-medium ${
+                    user.role === "agent"
+                      ? "text-slate-500"
+                      : "text-indigo-400"
+                  }`}
+                >
+                  {user.role === "agent" ? "Not linked" : "Connect"}
                 </span>
               )}
             </button>
@@ -702,7 +764,8 @@ export default function Workspace({
                   </p>
                   <p className="mx-auto mt-1.5 max-w-sm text-[11px] leading-relaxed text-slate-500">
                     Inbound messages land here as soon as a channel is connected.
-                    Link Instagram, WhatsApp, TikTok or X to get started.
+                    Link Instagram, WhatsApp, SMS, Discord or Telegram to get
+                    started.
                   </p>
                   <Link
                     href="/connect"
@@ -732,6 +795,7 @@ export default function Workspace({
                   draft={draft}
                   onDraftChange={setDraft}
                   onSend={sendMessage}
+                  onSendTemplate={sendTemplate}
                   sending={sending}
                   sendError={sendError}
                   agents={agents}
@@ -740,6 +804,20 @@ export default function Workspace({
                   onMoveQueue={changeQueue}
                   onStatusChange={changeStatus}
                   workflowError={workflowError}
+                />
+              )}
+              {tab === "calendar" && calendar && (
+                <CalendarPanel
+                  blocks={calendar.blocks}
+                  hours={calendar.hours}
+                  agents={calendar.agents}
+                  me={{ id: user.id, name: user.name }}
+                  today={calendar.today}
+                  weekStart={calendar.weekStart}
+                  weekLabel={calendar.weekLabel}
+                  prevWeek={calendar.prevWeek}
+                  nextWeek={calendar.nextWeek}
+                  thisWeek={calendar.thisWeek}
                 />
               )}
               {tab === "calls" && (
@@ -766,6 +844,7 @@ export default function Workspace({
                   telegram={telegram}
                   channels={channels}
                   connections={connections}
+                  channelAudit={channelAudit}
                   notice={notice}
                 />
               )}

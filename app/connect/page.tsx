@@ -35,7 +35,11 @@ export default async function ConnectPage() {
 
         <div className="mt-6 divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02]">
           <PhoneCard phone={user.phone} verified={user.phoneVerified} />
-          <ChannelManager channels={data.channels} connections={data.connections} />
+          <ChannelManager
+            channels={data.channels}
+            connections={data.connections}
+            canManage={user.role !== "agent"}
+          />
         </div>
 
         <div className="mt-6 flex items-center justify-between gap-4">

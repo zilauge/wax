@@ -1,5 +1,6 @@
 import type {
   Channel,
+  ChannelAuditEntry,
   ChannelConnection,
   TelegramRouting,
   WorkspaceUser,
@@ -41,14 +42,19 @@ export default function SettingsPanel({
   telegram,
   channels,
   connections,
+  channelAudit,
   notice = null,
 }: {
   user: WorkspaceUser;
   telegram: TelegramRouting;
   channels: Channel[];
   connections: ChannelConnection[];
+  channelAudit: ChannelAuditEntry[];
   notice?: string | null;
 }) {
+  const channelNames = new Map(
+    channels.map((channel) => [channel.id, channel.name] as const),
+  );
   return (
     <div>
       <PanelHeader title="Settings" badge={user.workspaceName} />
@@ -71,7 +77,45 @@ export default function SettingsPanel({
 
         <PhoneCard phone={user.phone} verified={user.phoneVerified} />
 
-        <ChannelManager channels={channels} connections={connections} />
+        <ChannelManager
+          channels={channels}
+          connections={connections}
+          canManage={user.role !== "agent"}
+        />
+
+        <section className="py-2">
+          <p className="px-4 pt-2 pb-1 text-[10px] font-semibold tracking-[0.12em] text-slate-500 uppercase">
+            Channel history
+          </p>
+          {channelAudit.length === 0 ? (
+            <p className="px-4 pb-2 text-[11px] text-slate-500">
+              No channel has been connected or disconnected yet.
+            </p>
+          ) : (
+            <ul className="divide-y divide-white/[0.04]">
+              {channelAudit.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="flex items-center justify-between gap-4 px-4 py-2"
+                >
+                  <span className="text-[11px] text-slate-300">
+                    {entry.action === "connected" ? "Linked" : "Disconnected"}{" "}
+                    {channelNames.get(entry.channel) ?? entry.channel}
+                  </span>
+                  <span className="text-right text-[10px] text-slate-500">
+                    {entry.actorName} ·{" "}
+                    {new Date(entry.at).toLocaleString("en-GB", {
+                      day: "2-digit",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <section className="py-2">
           <div className="flex items-center justify-between px-4 pt-2 pb-1">

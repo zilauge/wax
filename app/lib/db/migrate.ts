@@ -216,7 +216,169 @@ function backfillIdentities(database: DatabaseSync) {
   }
 }
 
+
+function providerFor(channelId: string, externalId: string) {
+  if (externalId === "wati") return "wati";
+  if (channelId === "whatsapp" || channelId === "instagram") return "meta";
+  return channelId;
+}
+
+/** Adds the provider column and its uniqueness guarantee to old connections. */
+function rebuildChannelConnections(database: DatabaseSync) {
+  if (columnsOf(database, "channel_connections").has("provider")) return;
+
+  database.exec("PRAGMA foreign_keys = OFF");
+  database.exec("BEGIN");
+  try {
+    database.exec(`
+      CREATE TABLE channel_connections_rebuilt (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        channel_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        account_name TEXT,
+        access_token TEXT NOT NULL,
+        last_error TEXT,
+        connected_at INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, channel_id),
+        UNIQUE (provider, external_id)
+      );
+    `);
+
+    for (const row of database
+      .prepare(
+        "SELECT workspace_id, channel_id, external_id, account_name, access_token, connected_at FROM channel_connections",
+      )
+      .all()) {
+      database
+        .prepare(
+          `INSERT INTO channel_connections_rebuilt
+             (workspace_id, channel_id, provider, external_id, account_name, access_token, last_error, connected_at)
+           VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+        )
+        .run(
+          String(row.workspace_id),
+          String(row.channel_id),
+          providerFor(String(row.channel_id), String(row.external_id)),
+          String(row.external_id),
+          row.account_name ? String(row.account_name) : null,
+          String(row.access_token),
+          Number(row.connected_at),
+        );
+    }
+
+    database.exec("DROP TABLE channel_connections");
+    database.exec(
+      "ALTER TABLE channel_connections_rebuilt RENAME TO channel_connections",
+    );
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  } finally {
+    database.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
+/** Delivery receipts and idempotency keys arrived after the first send path. */
+function rebuildMessages(database: DatabaseSync) {
+  const columns = columnsOf(database, "messages");
+  const definition = database
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'")
+    .get();
+  const supportsReceipts = String(definition?.sql ?? "").includes("'delivered'");
+
+  if (supportsReceipts) {
+    if (!columns.has("client_nonce")) {
+      database.exec("ALTER TABLE messages ADD COLUMN client_nonce TEXT");
+    }
+    return;
+  }
+
+  database.exec("PRAGMA foreign_keys = OFF");
+  database.exec("BEGIN");
+  try {
+    database.exec(`
+      CREATE TABLE messages_rebuilt (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        author TEXT NOT NULL CHECK (author IN ('agent', 'contact')),
+        body TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'sent'
+          CHECK (status IN ('sent', 'delivered', 'read', 'failed')),
+        error TEXT,
+        external_id TEXT UNIQUE,
+        client_nonce TEXT UNIQUE
+      );
+
+      INSERT INTO messages_rebuilt
+        (id, conversation_id, author, body, created_at, status, error, external_id, client_nonce)
+      SELECT id, conversation_id, author, body, created_at, status, error, external_id, NULL
+      FROM messages;
+
+      DROP TABLE messages;
+      ALTER TABLE messages_rebuilt RENAME TO messages;
+      CREATE INDEX IF NOT EXISTS messages_conversation_idx
+        ON messages (conversation_id, created_at);
+    `);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  } finally {
+    database.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
+/** Channels added after the first workspaces existed. */
+const CATALOGUE_ADDITIONS: [string, string, string, string][] = [
+  ["sms", "SMS", "Sms", "#f22f46"],
+  ["discord", "Discord", "Dc", "#5865f2"],
+];
+
+function backfillChannels(database: DatabaseSync) {
+  const insert = database.prepare(
+    `INSERT OR IGNORE INTO channels
+       (workspace_id, id, name, handle, monogram, color, connected)
+     VALUES (?, ?, ?, '', ?, ?, 0)`,
+  );
+
+  for (const workspace of database.prepare("SELECT id FROM workspaces").all()) {
+    for (const [id, name, monogram, color] of CATALOGUE_ADDITIONS) {
+      insert.run(String(workspace.id), id, name, monogram, color);
+    }
+  }
+}
+
+/** The polling sync keeps a per-connection cursor; older rows have none. */
+function addConnectionCursor(database: DatabaseSync) {
+  if (!columnsOf(database, "channel_connections").has("cursor")) {
+    database.exec("ALTER TABLE channel_connections ADD COLUMN cursor TEXT");
+  }
+}
+
+/** Inbound capability is recorded after the first sync attempt. */
+function addConnectionInboundState(database: DatabaseSync) {
+  const columns = columnsOf(database, "channel_connections");
+  if (!columns.has("inbound_state")) {
+    database.exec("ALTER TABLE channel_connections ADD COLUMN inbound_state TEXT");
+  }
+  if (!columns.has("inbound_note")) {
+    database.exec("ALTER TABLE channel_connections ADD COLUMN inbound_note TEXT");
+  }
+}
+
 export function migrate(database: DatabaseSync) {
+  backfillChannels(database);
+
+  // Channel connections and messages both gained columns after launch. The
+  // cursor is added after the rebuild, which drops unknown columns.
+  rebuildChannelConnections(database);
+  addConnectionCursor(database);
+  addConnectionInboundState(database);
+  rebuildMessages(database);
+
   // Mobile numbers and their verification landed after the first release.
   const userColumns = columnsOf(database, "users");
   if (!userColumns.has("phone")) {

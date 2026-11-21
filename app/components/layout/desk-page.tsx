@@ -1,7 +1,9 @@
 import { requireUser } from "@/app/lib/auth/auth";
 import { escalateBreaches } from "@/app/lib/workspace/escalation";
 import { getWorkspaceData } from "@/app/lib/workspace/store";
-import Workspace, { type DeskTab } from "./workspace";
+import { listBlocks, weeklyHours } from "@/app/lib/calendar/store";
+import { addDays, calendarWindow } from "@/app/lib/calendar/rules";
+import Workspace, { type CalendarData, type DeskTab } from "./workspace";
 
 /**
  * One dashboard route = one server load. The shell, sidebar and live channel
@@ -17,6 +19,7 @@ export default async function DeskPage({
     channel?: string;
     error?: string;
     connected?: string;
+    week?: string;
   }>;
 }) {
   const user = await requireUser();
@@ -35,6 +38,28 @@ export default async function DeskPage({
       ? (params.error ?? (params.connected === "1" ? "Channel connected." : null))
       : null;
 
+  // The calendar is the only tab with its own time window, so it is loaded per
+  // request rather than carried by every page.
+  let calendar: CalendarData | null = null;
+  if (tab === "calendar") {
+    const window = calendarWindow(params.week);
+    calendar = {
+      blocks: listBlocks(
+        user.workspaceId,
+        window.weekStart,
+        addDays(window.weekStart, 7),
+      ),
+      hours: weeklyHours(user.workspaceId, user.id),
+      agents: data.agents.map((agent) => ({ id: agent.id, name: agent.name })),
+      today: window.today,
+      weekStart: window.weekStart,
+      weekLabel: window.weekLabel,
+      prevWeek: window.prevWeek,
+      nextWeek: window.nextWeek,
+      thisWeek: window.thisWeek,
+    };
+  }
+
   return (
     <Workspace
       data={data}
@@ -42,6 +67,7 @@ export default async function DeskPage({
       tab={tab}
       initialChannel={initialChannel}
       notice={notice}
+      calendar={calendar}
     />
   );
 }

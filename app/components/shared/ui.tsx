@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ChannelMark } from "@/app/components/shared/channel-marks";
 import type { Channel } from "@/app/lib/types";
 
 /** Shared button/chip styles so the same surface is not retyped per panel. */
@@ -30,6 +31,15 @@ export function LiveDot() {
   );
 }
 
+/** The tinted square behind a channel mark, shared with the settings rows. */
+export function channelTileStyle(color: string) {
+  return {
+    backgroundColor: `${color}1f`,
+    color,
+    boxShadow: `inset 0 0 0 1px ${color}33`,
+  };
+}
+
 export function ChannelTile({
   channel,
   size = "md",
@@ -40,16 +50,15 @@ export function ChannelTile({
   return (
     <span
       aria-label={channel.name}
-      className={`flex shrink-0 items-center justify-center rounded-xl font-semibold tracking-tight ${
-        size === "sm" ? "h-6 w-6 text-[10px]" : "h-9 w-9 text-xs"
+      className={`flex shrink-0 items-center justify-center rounded-xl ${
+        size === "sm" ? "h-6 w-6" : "h-9 w-9"
       }`}
-      style={{
-        backgroundColor: `${channel.color}1f`,
-        color: channel.color,
-        boxShadow: `inset 0 0 0 1px ${channel.color}33`,
-      }}
+      style={channelTileStyle(channel.color)}
     >
-      {channel.monogram}
+      <ChannelMark
+        channel={channel.id}
+        className={size === "sm" ? "h-3.5 w-3.5" : "h-[18px] w-[18px]"}
+      />
     </span>
   );
 }

@@ -4,6 +4,8 @@ export type ChannelId =
   | "whatsapp"
   | "x"
   | "telegram"
+  | "sms"
+  | "discord"
   | "youtube";
 
 export type Channel = {
@@ -16,17 +18,37 @@ export type Channel = {
   /** Whether the server holds the credentials needed to start a connection. */
   configured: boolean;
   unread: number;
+  /**
+   * Set when the provider itself refuses inbound (X without DM read), so the
+   * inbox can say "replies only" instead of silently waiting for messages.
+   */
+  inboundNote: string | null;
 };
 
 /** A social account this workspace has linked through the provider's OAuth. */
 export type ChannelConnection = {
   channel: ChannelId;
+  provider: string;
   accountName: string | null;
+  connectedAt: number | null;
+  lastError: string | null;
+  /** What the provider last allowed for inbound; null until it is known. */
+  inboundState: "ready" | "unavailable" | null;
+  inboundNote: string | null;
+};
+
+/** A connect/disconnect performed by an owner or admin. */
+export type ChannelAuditEntry = {
+  id: string;
+  channel: ChannelId;
+  action: "connected" | "disconnected";
+  actorName: string;
+  at: number;
 };
 
 export type MessageAuthor = "agent" | "contact";
 
-export type MessageStatus = "sent" | "failed";
+export type MessageStatus = "sent" | "delivered" | "read" | "failed";
 
 export type Message = {
   id: string;
@@ -107,6 +129,8 @@ export type Conversation = {
   queueName: string | null;
   queueColor: string | null;
   sla: Sla | null;
+  /** When the channel's free-form reply window closes, if it has one. */
+  replyWindowEndsAt: number | null;
   lastAt: string;
   unread: number;
   messages: Message[];
@@ -209,6 +233,7 @@ export type WorkspaceData = {
   agents: Agent[];
   queues: Queue[];
   telegram: TelegramRouting;
+  channelAudit: ChannelAuditEntry[];
   metrics: Metric[];
   summary: Summary;
 };

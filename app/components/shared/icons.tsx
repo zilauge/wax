@@ -178,6 +178,16 @@ export function HeadphonesIcon(props: IconProps) {
   );
 }
 
+export function CalendarIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+      <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" />
+      <path d="M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2M11 16.5h2" />
+    </svg>
+  );
+}
+
 export function LayersIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>

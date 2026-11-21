@@ -1,5 +1,6 @@
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { metaSignatureMatches } from "@/app/lib/channels/meta-signature";
 import {
   attachIdentity,
   findIdentityAcrossChannels,
@@ -7,6 +8,7 @@ import {
 } from "@/app/lib/contacts/identities";
 import { normalizeIdentity } from "@/app/lib/contacts/identity";
 import { workspaceForWhatsAppNumber } from "@/app/lib/channels/whatsapp";
+import { mapReceiptStatus, nextMessageStatus } from "@/app/lib/channels/status";
 import { db } from "@/app/lib/db/db";
 import { publishWorkspaceEvent } from "@/app/lib/workspace/realtime";
 
@@ -18,10 +20,17 @@ type WhatsAppMessage = {
   text?: { body?: string };
 };
 
+type WhatsAppStatus = {
+  id?: string;
+  status?: string;
+  errors?: { title?: string; message?: string }[];
+};
+
 type WhatsAppValue = {
   metadata?: { phone_number_id?: string; display_phone_number?: string };
   contacts?: { wa_id?: string; profile?: { name?: string } }[];
   messages?: WhatsAppMessage[];
+  statuses?: WhatsAppStatus[];
 };
 
 type WhatsAppPayload = {
@@ -53,15 +62,6 @@ export async function GET(request: Request) {
   return NextResponse.json({ ok: false, error: "Verification failed." }, { status: 403 });
 }
 
-function signatureMatches(raw: string, header: string | null, secret: string) {
-  if (!header?.startsWith("sha256=")) return false;
-  const expected = createHmac("sha256", secret).update(raw, "utf8").digest("hex");
-  const received = header.slice("sha256=".length);
-  const a = Buffer.from(expected, "hex");
-  const b = Buffer.from(received, "hex");
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 /**
  * Inbound WhatsApp messages.
  *
@@ -81,7 +81,13 @@ export async function POST(request: Request) {
   }
 
   const raw = await request.text();
-  if (!signatureMatches(raw, request.headers.get("x-hub-signature-256"), secret)) {
+  if (
+    !metaSignatureMatches(
+      raw,
+      request.headers.get("x-hub-signature-256"),
+      secret,
+    )
+  ) {
     return NextResponse.json(
       { ok: false, error: "Invalid signature." },
       { status: 401 },
@@ -97,12 +103,56 @@ export async function POST(request: Request) {
 
   let accepted = 0;
   let duplicates = 0;
+  let receipts = 0;
 
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
       if (change.field && change.field !== "messages") continue;
 
       const value = change.value;
+
+      // Delivery receipts move an already-sent message forward; they never
+      // create messages, and they are scoped to the tenant that owns the number.
+      for (const status of value?.statuses ?? []) {
+        const phoneNumberId = value?.metadata?.phone_number_id;
+        const externalId = status.id;
+        const incoming = mapReceiptStatus(status.status ?? "");
+        if (!phoneNumberId || !externalId || !incoming) continue;
+
+        const workspaceId = workspaceForWhatsAppNumber(phoneNumberId);
+        if (!workspaceId) continue;
+
+        const row = db
+          .prepare(
+            `SELECT m.id, m.status, m.conversation_id
+             FROM messages m
+             JOIN conversations c ON c.id = m.conversation_id
+             WHERE c.workspace_id = ? AND m.external_id = ?`,
+          )
+          .get(workspaceId, externalId);
+        if (!row) continue;
+
+        const next = nextMessageStatus(
+          String(row.status) as "sent" | "delivered" | "read" | "failed",
+          incoming,
+        );
+        if (next === row.status) continue;
+
+        const failure = status.errors?.[0]?.message ?? status.errors?.[0]?.title;
+        db.prepare("UPDATE messages SET status = ?, error = ? WHERE id = ?").run(
+          next,
+          next === "failed" ? (failure ?? "WhatsApp reported a delivery failure.") : null,
+          String(row.id),
+        );
+
+        publishWorkspaceEvent(workspaceId, {
+          kind: "message",
+          conversationId: String(row.conversation_id),
+          text: `WhatsApp message ${next}`,
+        });
+        receipts += 1;
+      }
+
       const message = value?.messages?.[0];
       const text = message?.text?.body?.trim();
       const from = message?.from;
@@ -223,5 +273,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, accepted, duplicates });
+  return NextResponse.json({ ok: true, accepted, duplicates, receipts });
 }

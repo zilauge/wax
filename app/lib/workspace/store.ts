@@ -2,7 +2,11 @@ import "server-only";
 
 import { connection } from "next/server";
 import { telegramConfigured } from "@/app/lib/channels/telegram";
-import { listConnections } from "@/app/lib/channels/connections";
+import {
+  listChannelAudit,
+  listConnections,
+} from "@/app/lib/channels/connections";
+import { replyWindowEndsAt } from "@/app/lib/channels/window";
 import { getProvider } from "@/app/lib/channels/providers";
 import { resolveTelegramBindingForWorkspace } from "@/app/lib/channels/telegram-binding";
 import { db } from "@/app/lib/db/db";
@@ -90,7 +94,14 @@ function toMessage(row: Row): Message {
     time: clockTime(Number(row.created_at)),
     at: Number(row.created_at),
     channel: text(row.channel_id) as ChannelId,
-    status: text(row.status) === "failed" ? "failed" : "sent",
+    status:
+      text(row.status) === "failed"
+        ? "failed"
+        : text(row.status) === "delivered"
+          ? "delivered"
+          : text(row.status) === "read"
+            ? "read"
+            : "sent",
     error: row.error ? text(row.error) : null,
   };
 }
@@ -180,6 +191,19 @@ export async function getWorkspaceData(
     (row) => text(row.conversation_id),
   );
 
+  // WhatsApp and Instagram only accept free-form replies inside their 24-hour
+  // window, counted from the customer's last message. Other channels have no
+  // such restriction.
+  const lastInbound = new Map<string, number>();
+  for (const row of messageRows) {
+    if (text(row.author) !== "contact") continue;
+    const conversationId = text(row.conversation_id);
+    lastInbound.set(
+      conversationId,
+      Math.max(lastInbound.get(conversationId) ?? 0, Number(row.created_at)),
+    );
+  }
+
   const conversations: Conversation[] = conversationRows.map((row) => ({
     id: text(row.id),
     channel: text(row.channel_id) as ChannelId,
@@ -202,6 +226,10 @@ export async function getWorkspaceData(
       row.first_response_at ? Number(row.first_response_at) : null,
       row.sla_due_at ? Number(row.sla_due_at) : null,
     ),
+    replyWindowEndsAt:
+      text(row.channel_id) === "whatsapp" || text(row.channel_id) === "instagram"
+        ? replyWindowEndsAt(lastInbound.get(text(row.id)) ?? null)
+        : null,
     lastAt: relativeTime(Number(row.last_at)),
     unread: Number(row.unread),
     messages: (messagesByConversation.get(text(row.id)) ?? []).map(toMessage),
@@ -250,6 +278,7 @@ export async function getWorkspaceData(
   });
 
   const connections = listConnections(workspaceId);
+  const channelAudit = listChannelAudit(workspaceId);
 
   const channels: Channel[] = channelRows.map((row) => {
     const id = text(row.id) as ChannelId;
@@ -271,7 +300,16 @@ export async function getWorkspaceData(
       configured:
         id === "telegram"
           ? telegramConfigured()
-          : Boolean(provider?.configured()),
+          : id === "sms" || id === "discord"
+            ? // These credentials are entered in settings, so nothing has to be
+              // preconfigured on the server to start a connection.
+              true
+            : Boolean(provider?.configured()),
+      inboundNote:
+        connection?.inboundState === "unavailable"
+          ? (connection.inboundNote ??
+            "This channel cannot receive messages right now; replies still send.")
+          : null,
       unread,
     };
   });
@@ -433,6 +471,7 @@ export async function getWorkspaceData(
     agents,
     queues,
     telegram,
+    channelAudit,
     metrics,
     summary,
   };

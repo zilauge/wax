@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Channel, ChannelId, Meeting, Summary } from "@/app/lib/types";
+import { startRoomAction } from "@/app/lib/rooms/actions";
 import { PanelHeader, primaryButtonClass } from "@/app/components/shared/ui";
 import { VideoIcon } from "@/app/components/shared/icons";
 
@@ -18,14 +19,12 @@ export default function MeetingsPanel({
         title="Conference rooms"
         badge={`${summary.meetingsToday} today`}
         action={
-          <Link
-            href="/settings"
-            title="Meetings need a connected video channel — manage channels in settings"
-            className={primaryButtonClass}
-          >
-            <VideoIcon className="h-3.5 w-3.5" />
-            Start meeting
-          </Link>
+          <form action={startRoomAction} className="ml-auto">
+            <button type="submit" className={primaryButtonClass}>
+              <VideoIcon className="h-3.5 w-3.5" />
+              Start room
+            </button>
+          </form>
         }
       />
       <ul className="divide-y divide-white/[0.04]">
@@ -36,13 +35,14 @@ export default function MeetingsPanel({
               No meetings scheduled
             </p>
             <p className="mx-auto mt-1 max-w-xs text-[11px] leading-relaxed text-slate-500">
-              Rooms appear here once a video channel is connected.{" "}
+              Start a room and share its link, or block time for a meeting in{" "}
               <Link
-                href="/settings"
+                href="/calendar"
                 className="font-medium text-indigo-400 hover:text-indigo-300"
               >
-                Manage channels
+                the calendar
               </Link>
+              .
             </p>
           </li>
         )}
@@ -90,18 +90,16 @@ export default function MeetingsPanel({
                   </span>
                 ))}
               </div>
-              <button
-                type="button"
-                disabled
-                title="Meeting rooms need a conferencing provider — connect a channel in settings"
+              <Link
+                href={`/rooms/${meeting.id}`}
                 className={
                   isLive
-                    ? "cursor-not-allowed rounded-lg bg-emerald-500/40 px-3 py-1.5 text-[11px] font-semibold text-emerald-950/70"
-                    : "cursor-not-allowed rounded-lg border border-white/[0.07] px-3 py-1.5 text-[11px] font-medium text-slate-500"
+                    ? "rounded-lg bg-emerald-500/90 px-3 py-1.5 text-[11px] font-semibold text-emerald-950 hover:bg-emerald-400"
+                    : "rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium text-slate-200 hover:bg-white/[0.08]"
                 }
               >
                 {isLive ? "Join now" : "Open room"}
-              </button>
+              </Link>
             </li>
           );
         })}

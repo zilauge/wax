@@ -1,12 +1,17 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/app/lib/auth/auth";
-import { saveConnection } from "@/app/lib/channels/connections";
+import {
+  logChannelAudit,
+  providerForChannel,
+  saveConnection,
+} from "@/app/lib/channels/connections";
 import {
   CHANNEL_OAUTH_COOKIE,
   getProvider,
   type OAuthPending,
 } from "@/app/lib/channels/providers";
+import { serializeToken } from "@/app/lib/channels/tokens";
 
 function back(
   request: Request,
@@ -88,9 +93,24 @@ export async function GET(
     saveConnection({
       workspaceId: user.workspaceId,
       channel: provider.id,
+      provider: providerForChannel(provider.id),
       externalId: account.id,
       accountName: account.name,
-      accessToken: tokens.accessToken,
+      accessToken: serializeToken({
+        accessToken: account.accessToken ?? tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: tokens.expiresIn
+          ? Date.now() + tokens.expiresIn * 1000
+          : undefined,
+      }),
+    });
+
+    logChannelAudit({
+      workspaceId: user.workspaceId,
+      channel: provider.id,
+      action: "connected",
+      actorUserId: user.id,
+      actorName: user.name,
     });
 
     return back(request, channel, { connected: "1" });

@@ -19,6 +19,8 @@ const CHANNEL_VALUES: ChannelId[] = [
   "whatsapp",
   "x",
   "telegram",
+  "sms",
+  "discord",
   "youtube",
 ];
 

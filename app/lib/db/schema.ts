@@ -5,6 +5,7 @@
  */
 export const SCHEMA = `
   PRAGMA journal_mode = WAL;
+  PRAGMA busy_timeout = 5000;
   PRAGMA foreign_keys = ON;
 
   CREATE TABLE IF NOT EXISTS workspaces (
@@ -122,9 +123,12 @@ export const SCHEMA = `
     author TEXT NOT NULL CHECK (author IN ('agent', 'contact')),
     body TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent', 'failed')),
+    status TEXT NOT NULL DEFAULT 'sent'
+      CHECK (status IN ('sent', 'delivered', 'read', 'failed')),
     error TEXT,
-    external_id TEXT UNIQUE
+    external_id TEXT UNIQUE,
+    -- A retried server action must not send the same reply twice.
+    client_nonce TEXT UNIQUE
   );
 
   CREATE INDEX IF NOT EXISTS messages_conversation_idx
@@ -168,16 +172,45 @@ export const SCHEMA = `
   );
 
   -- One linked social account per channel and workspace. Tokens are only ever
-  -- read server-side, so the browser never receives them.
+  -- read server-side, so the browser never receives them. The provider column
+  -- names the API family (meta, tiktok, x, wati); the unique pair stops two workspaces
+  -- claiming the same external account, which would make inbound routing
+  -- ambiguous and could cross tenant boundaries.
   CREATE TABLE IF NOT EXISTS channel_connections (
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     channel_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
     external_id TEXT NOT NULL,
     account_name TEXT,
     access_token TEXT NOT NULL,
+    last_error TEXT,
     connected_at INTEGER NOT NULL,
-    PRIMARY KEY (workspace_id, channel_id)
+    -- Where the polling sync stopped: a message id (Discord) or an ISO date
+    -- (YouTube). Push-driven channels leave it NULL.
+    cursor TEXT,
+    -- What the provider last allowed for inbound ("ready" / "unavailable"),
+    -- with the reason, so settings and the inbox can state a limitation that
+    -- is the provider's, not a fault in the desk.
+    inbound_state TEXT,
+    inbound_note TEXT,
+    PRIMARY KEY (workspace_id, channel_id),
+    UNIQUE (provider, external_id)
   );
+
+  -- Who changed a channel connection, and when. Owner/admin actions need a
+  -- trail, especially disconnects that silently stop delivery.
+  CREATE TABLE IF NOT EXISTS channel_audit (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    channel_id TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('connected', 'disconnected')),
+    actor_user_id TEXT NOT NULL,
+    actor_name TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS channel_audit_workspace_idx
+    ON channel_audit (workspace_id, created_at);
 
   -- One-time codes for the mobile number. Only a salted hash is stored, every
   -- row expires, and the attempt counter caps brute-force guesses.
@@ -195,4 +228,45 @@ export const SCHEMA = `
 
   CREATE INDEX IF NOT EXISTS phone_verifications_user_idx
     ON phone_verifications (user_id, created_at);
+
+  -- One row per block a person reserves for themselves. The kind drives the
+  -- colour and the behaviour: a focus block is the boundary the calendar warns
+  -- teammates about.
+  CREATE TABLE IF NOT EXISTS calendar_blocks (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('focus', 'meeting', 'admin', 'break')),
+    start_at INTEGER NOT NULL,
+    end_at INTEGER NOT NULL,
+    note TEXT,
+    room_id TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS calendar_blocks_workspace_idx
+    ON calendar_blocks (workspace_id, start_at);
+
+  -- The working window per weekday (0 = Monday). Missing rows mean the default
+  -- 09:00-17:00, so a workspace needs no setup before it can show boundaries.
+  CREATE TABLE IF NOT EXISTS calendar_hours (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+    start_minute INTEGER NOT NULL,
+    end_minute INTEGER NOT NULL,
+    PRIMARY KEY (workspace_id, user_id, weekday)
+  );
+
+  -- A media room. Participants are ephemeral and live in the signaling hub;
+  -- this row is the durable identity an invite links to.
+  CREATE TABLE IF NOT EXISTS rooms (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    closed_at INTEGER
+  );
 `;

@@ -3,19 +3,14 @@ import "server-only";
 import { db } from "@/app/lib/db/db";
 
 /**
- * WhatsApp Cloud API delivery. The tenant is decided by the stored connection
- * row: its access token and its phone number id (kept in `external_id`) belong
- * to exactly one workspace, so neither an inbound webhook nor an outbound send
- * can cross tenants.
+ * WhatsApp delivery. Two API families are supported: Meta's Cloud API and the
+ * operator's WATI account. The tenant is decided by the stored connection row,
+ * so neither an inbound webhook nor an outbound send can cross workspaces.
  */
 const GRAPH = "https://graph.facebook.com/v21.0";
 
-/**
- * A connection whose external id is "wati" is served by the operator's WATI
- * account instead of Meta's Cloud API. It is a per-connection marker, so only
- * the workspace that owns that row sends through WATI.
- */
-export const WATI_TRANSPORT = "wati";
+/** The provider stored on WAX's per-connection WATI marker row. */
+export const WATI_PROVIDER = "wati";
 
 function watiSettings() {
   const key = process.env.WATI_API_KEY?.trim();
@@ -24,12 +19,13 @@ function watiSettings() {
 }
 
 export type WhatsAppDelivery =
-  | { status: "sent" }
+  | { status: "sent"; externalId: string | null }
   | { status: "failed"; error: string };
 
 export type WhatsAppCredentials = {
   workspaceId: string;
-  phoneNumberId: string;
+  provider: string;
+  externalId: string;
   accessToken: string;
   accountName: string | null;
 };
@@ -39,7 +35,7 @@ export function whatsappConnectionForWorkspace(
 ): WhatsAppCredentials | null {
   const row = db
     .prepare(
-      `SELECT workspace_id, external_id, access_token, account_name
+      `SELECT workspace_id, provider, external_id, access_token, account_name
        FROM channel_connections
        WHERE workspace_id = ? AND channel_id = 'whatsapp'`,
     )
@@ -49,18 +45,19 @@ export function whatsappConnectionForWorkspace(
 
   return {
     workspaceId: String(row.workspace_id),
-    phoneNumberId: String(row.external_id),
+    provider: String(row.provider),
+    externalId: String(row.external_id),
     accessToken: String(row.access_token),
     accountName: row.account_name ? String(row.account_name) : null,
   };
 }
 
-/** Resolves the workspace that owns a webhook's phone number id. */
+/** Resolves the workspace that owns a Meta webhook's phone number id. */
 export function workspaceForWhatsAppNumber(phoneNumberId: string): string | null {
   const row = db
     .prepare(
       `SELECT workspace_id FROM channel_connections
-       WHERE channel_id = 'whatsapp' AND external_id = ?`,
+       WHERE channel_id = 'whatsapp' AND provider = 'meta' AND external_id = ?`,
     )
     .get(phoneNumberId);
 
@@ -75,6 +72,30 @@ function errorMessage(payload: Record<string, unknown> | null, status: number) {
   }
   if (typeof payload?.message === "string") return payload.message;
   return `WhatsApp responded with ${status}.`;
+}
+
+/** Meta returns the provider message id that delivery receipts refer to. */
+function sentId(payload: Record<string, unknown> | null): string | null {
+  const messages = Array.isArray(payload?.messages)
+    ? (payload.messages as Record<string, unknown>[])
+    : [];
+  const id = messages[0]?.id;
+  return typeof id === "string" ? id : null;
+}
+
+function watiSentId(payload: Record<string, unknown> | null): string | null {
+  const id = payload?.whatsappMessageId ?? payload?.messageId;
+  if (typeof id === "string") return id;
+  const nested = payload?.message;
+  if (nested && typeof nested === "object" && "id" in nested) {
+    const nestedId = (nested as { id?: unknown }).id;
+    if (typeof nestedId === "string") return nestedId;
+  }
+  return null;
+}
+
+function normalizeNumber(address: string | null) {
+  return (address ?? "").replace(/\D/g, "");
 }
 
 export async function deliverWhatsAppMessage({
@@ -96,7 +117,7 @@ export async function deliverWhatsAppMessage({
     };
   }
 
-  const to = (address ?? "").replace(/\D/g, "");
+  const to = normalizeNumber(address);
   if (!to) {
     return {
       status: "failed",
@@ -104,46 +125,112 @@ export async function deliverWhatsAppMessage({
     };
   }
 
-  if (connection.phoneNumberId === WATI_TRANSPORT) {
+  if (connection.provider === WATI_PROVIDER) {
     return sendViaWati(to, text);
   }
 
+  return sendMeta(connection, {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "text",
+    text: { body: text },
+  }, to);
+}
+
+/**
+ * Outside the 24-hour service window Meta only accepts an approved template.
+ * `params` fill the template body in order.
+ */
+export async function deliverWhatsAppTemplate({
+  workspaceId,
+  address,
+  name,
+  language,
+  params,
+}: {
+  workspaceId: string;
+  address: string | null;
+  name: string;
+  language: string;
+  params: string[];
+}): Promise<WhatsAppDelivery> {
+  const connection = whatsappConnectionForWorkspace(workspaceId);
+
+  if (!connection) {
+    return { status: "failed", error: "WhatsApp is not connected for this workspace." };
+  }
+  if (connection.provider === WATI_PROVIDER) {
+    return {
+      status: "failed",
+      error: "Sending templates through WATI is not wired yet.",
+    };
+  }
+
+  const to = normalizeNumber(address);
+  if (!to) {
+    return { status: "failed", error: "This contact has no WhatsApp phone number." };
+  }
+
+  return sendMeta(
+    connection,
+    {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to,
+      type: "template",
+      template: {
+        name,
+        language: { code: language },
+        ...(params.length > 0
+          ? {
+              components: [
+                {
+                  type: "body",
+                  parameters: params.map((value) => ({ type: "text", text: value })),
+                },
+              ],
+            }
+          : {}),
+      },
+    },
+    to,
+  );
+}
+
+async function sendMeta(
+  connection: WhatsAppCredentials,
+  payload: Record<string, unknown>,
+  to: string,
+): Promise<WhatsAppDelivery> {
   try {
     const response = await fetch(
-      `${GRAPH}/${connection.phoneNumberId}/messages`,
+      `${GRAPH}/${connection.externalId}/messages`,
       {
         method: "POST",
         headers: {
           authorization: `Bearer ${connection.accessToken}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to,
-          type: "text",
-          text: { body: text },
-        }),
+        body: JSON.stringify(payload),
         cache: "no-store",
       },
     );
 
+    const body = (await response.json().catch(() => null)) as Record<
+      string,
+      unknown
+    > | null;
+
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
-      return {
-        status: "failed",
-        error: errorMessage(payload, response.status),
-      };
+      return { status: "failed", error: errorMessage(body, response.status) };
     }
 
-    return { status: "sent" };
+    return { status: "sent", externalId: sentId(body) };
   } catch {
     return {
       status: "failed",
-      error: "Could not reach WhatsApp. The message was not delivered.",
+      error: `Could not reach WhatsApp for ${to}. The message was not delivered.`,
     };
   }
 }
@@ -175,11 +262,12 @@ async function sendViaWati(
       },
     );
 
+    const payload = (await response.json().catch(() => null)) as Record<
+      string,
+      unknown
+    > | null;
+
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
       const message =
         typeof payload?.message === "string"
           ? payload.message
@@ -189,7 +277,7 @@ async function sendViaWati(
       return { status: "failed", error: message };
     }
 
-    return { status: "sent" };
+    return { status: "sent", externalId: watiSentId(payload) };
   } catch {
     return {
       status: "failed",

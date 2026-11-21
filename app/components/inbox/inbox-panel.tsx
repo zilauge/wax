@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type {
   Agent,
   Channel,
@@ -65,6 +66,11 @@ type InboxPanelProps = {
   draft: string;
   onDraftChange: (value: string) => void;
   onSend: (event: React.FormEvent) => void;
+  onSendTemplate: (input: {
+    name: string;
+    language: string;
+    params: string[];
+  }) => void;
   sending: boolean;
   sendError: string | null;
   agents: Agent[];
@@ -97,6 +103,7 @@ export default function InboxPanel({
   draft,
   onDraftChange,
   onSend,
+  onSendTemplate,
   sending,
   sendError,
   agents,
@@ -114,6 +121,30 @@ export default function InboxPanel({
   const mergeCandidates = contacts.filter(
     (contact) => contact.id !== active.contact.id,
   );
+
+  const [templateName, setTemplateName] = useState("");
+  const [templateLanguage, setTemplateLanguage] = useState("en_US");
+  const [templateParams, setTemplateParams] = useState("");
+
+  // The clock is read after mount (and once a minute) so rendering stays pure
+  // and hydration sees the same markup on both sides.
+  const [now, setNow] = useState<number | null>(null);
+
+  useEffect(() => {
+    const update = () => setNow(Date.now());
+    update();
+    const timer = setInterval(update, 60_000);
+    return () => clearInterval(timer);
+  }, [active.id]);
+
+  const windowClosed =
+    now !== null &&
+    active.replyWindowEndsAt !== null &&
+    active.replyWindowEndsAt <= now;
+  const windowHoursLeft =
+    now === null || active.replyWindowEndsAt === null
+      ? null
+      : Math.max(0, Math.ceil((active.replyWindowEndsAt - now) / 3_600_000));
 
   return (
     <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -369,8 +400,12 @@ export default function InboxPanel({
                         Not delivered
                         {message.error ? ` · ${message.error}` : ""}
                       </span>
-                    ) : (
+                    ) : message.status === "read" ? (
+                      "Read"
+                    ) : message.status === "delivered" ? (
                       "Delivered"
+                    ) : (
+                      "Sent"
                     )}
                   </p>
                 </div>
@@ -379,48 +414,144 @@ export default function InboxPanel({
           })}
         </div>
 
-        <form onSubmit={onSend} className="border-t border-white/[0.06] px-4 py-3">
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 focus-within:border-indigo-500/40">
-            <input
-              value={draft}
-              onChange={(event) => onDraftChange(event.target.value)}
-              placeholder={`Reply on ${activeChannel.name}…`}
-              className="w-full bg-transparent text-[13px] text-slate-100 placeholder:text-slate-500 focus:outline-none"
-            />
-            <div className="mt-2 flex items-center gap-1">
-              {[
-                { label: "Attach a file", Icon: PaperclipIcon },
-                { label: "Insert an emoji", Icon: SmileIcon },
-                { label: "Record a voice note", Icon: MicIcon },
-              ].map(({ label, Icon }) => (
-                <button
-                  key={label}
-                  type="button"
-                  aria-label={label}
-                  className="rounded-md p-1.5 text-slate-500 hover:bg-white/5 hover:text-slate-200"
-                >
-                  <Icon className="h-4 w-4" />
-                </button>
-              ))}
+        {active.channel === "x" && activeChannel.inboundNote && (
+          <p
+            role="note"
+            className="border-t border-white/[0.06] bg-amber-400/[0.06] px-4 py-2.5 text-[11px] leading-relaxed text-amber-200/90"
+          >
+            <span className="font-semibold">Replies only.</span>{" "}
+            {activeChannel.inboundNote}
+          </p>
+        )}
+
+        {windowClosed && active.channel === "whatsapp" ? (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!templateName.trim() || sending) return;
+              onSendTemplate({
+                name: templateName,
+                language: templateLanguage,
+                params: templateParams.split(","),
+              });
+            }}
+            className="border-t border-white/[0.06] px-4 py-3"
+          >
+            <p className="rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
+              WhatsApp&apos;s 24-hour reply window closed{" "}
+              {active.replyWindowEndsAt
+                ? new Date(active.replyWindowEndsAt).toLocaleString("en-GB", {
+                    day: "2-digit",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "earlier"}
+              . Only an approved template can be sent now.
+            </p>
+            <div className="mt-2 grid gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 sm:grid-cols-[1fr_120px] lg:grid-cols-[1fr_110px_140px]">
+              <input
+                value={templateName}
+                onChange={(event) => setTemplateName(event.target.value)}
+                placeholder="Template name"
+                aria-label="Template name"
+                className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-[12px] text-slate-100 placeholder:text-slate-500 focus:border-indigo-500/40 focus:outline-none"
+              />
+              <input
+                value={templateLanguage}
+                onChange={(event) => setTemplateLanguage(event.target.value)}
+                placeholder="en_US"
+                aria-label="Template language"
+                className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 font-mono text-[12px] text-slate-100 placeholder:text-slate-500 focus:border-indigo-500/40 focus:outline-none"
+              />
+              <input
+                value={templateParams}
+                onChange={(event) => setTemplateParams(event.target.value)}
+                placeholder="Body values, comma separated"
+                aria-label="Template body values"
+                className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-[12px] text-slate-100 placeholder:text-slate-500 focus:border-indigo-500/40 focus:outline-none sm:col-span-2 lg:col-span-1"
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="text-[10px] text-slate-500">
+                The name and language must match the template approved in Meta
+                Business Manager.
+              </p>
               <button
                 type="submit"
-                disabled={sending}
-                className="ml-auto flex items-center gap-1.5 rounded-lg bg-indigo-500 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={sending || !templateName.trim()}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-500 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {sending ? "Sending…" : "Send"}
+                {sending ? "Sending…" : "Send template"}
                 <SendIcon className="h-3.5 w-3.5" />
               </button>
             </div>
-          </div>
-          {sendError && (
-            <p
-              role="alert"
-              className="mt-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300"
-            >
-              {sendError}
-            </p>
-          )}
-        </form>
+            {sendError && (
+              <p
+                role="alert"
+                className="mt-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300"
+              >
+                {sendError}
+              </p>
+            )}
+          </form>
+        ) : (
+          <form onSubmit={onSend} className="border-t border-white/[0.06] px-4 py-3">
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 focus-within:border-indigo-500/40">
+              <input
+                value={draft}
+                onChange={(event) => onDraftChange(event.target.value)}
+                placeholder={`Reply on ${activeChannel.name}…`}
+                className="w-full bg-transparent text-[13px] text-slate-100 placeholder:text-slate-500 focus:outline-none"
+              />
+              <div className="mt-2 flex items-center gap-1">
+                {[
+                  { label: "Attach a file", Icon: PaperclipIcon },
+                  { label: "Insert an emoji", Icon: SmileIcon },
+                  { label: "Record a voice note", Icon: MicIcon },
+                ].map(({ label, Icon }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-label={label}
+                    className="rounded-md p-1.5 text-slate-500 hover:bg-white/5 hover:text-slate-200"
+                  >
+                    <Icon className="h-4 w-4" />
+                  </button>
+                ))}
+                <button
+                  type="submit"
+                  disabled={sending}
+                  className="ml-auto flex items-center gap-1.5 rounded-lg bg-indigo-500 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {sending ? "Sending…" : "Send"}
+                  <SendIcon className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+            {windowClosed && (
+              <p className="mt-2 rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[10px] leading-relaxed text-amber-200">
+                {active.channel === "instagram"
+                  ? "Instagram only accepts free-form replies within 24 hours of the customer's last message. The provider may reject this reply."
+                  : "The reply window for this conversation is closed."}
+              </p>
+            )}
+            {!windowClosed && windowHoursLeft !== null && (
+              <p className="mt-2 text-[10px] text-slate-500">
+                Free-form replies close in about {windowHoursLeft}h; after that
+                an approved template is required.
+              </p>
+            )}
+            {sendError && (
+              <p
+                role="alert"
+                className="mt-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300"
+              >
+                {sendError}
+              </p>
+            )}
+          </form>
+        )}
       </div>
     </div>
   );
