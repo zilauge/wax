@@ -17,6 +17,16 @@ export type AnalyticsReport = {
     notes: number;
   };
   sla: { met: number; late: number };
+  medianResponseMinutes: number | null;
+  byChannel: { channel: string; inbound: number; outbound: number }[];
+  workload: {
+    id: string;
+    name: string;
+    presence: string;
+    active: number;
+    breached: number;
+  }[];
+  backlog: { unassigned: number; breaching: number };
 };
 
 const ranges = [7, 30, 90] as const;
@@ -103,6 +113,84 @@ export default function AnalyticsPanel({
           Messages per day across the last {report.days} days.
         </p>
       </section>
+
+      <section className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-fg/[0.06] bg-fg/[0.02] p-4">
+          <p className="text-[11px] text-slate-500">Median first reply</p>
+          <p className="mt-1.5 text-2xl font-semibold tracking-tight text-fg">
+            {report.medianResponseMinutes === null
+              ? "—"
+              : report.medianResponseMinutes >= 60
+                ? `${Math.round((report.medianResponseMinutes / 60) * 10) / 10}h`
+                : `${report.medianResponseMinutes}m`}
+          </p>
+          <p className="mt-1 text-[10px] text-slate-500">
+            from the customer&apos;s first message
+          </p>
+        </div>
+        <div className="rounded-2xl border border-fg/[0.06] bg-fg/[0.02] p-4">
+          <p className="text-[11px] text-slate-500">Unassigned backlog</p>
+          <p className="mt-1.5 text-2xl font-semibold tracking-tight text-fg">
+            {report.backlog.unassigned}
+          </p>
+          <p className="mt-1 text-[10px] text-slate-500">
+            unresolved threads nobody owns
+          </p>
+        </div>
+        <div className="rounded-2xl border border-fg/[0.06] bg-fg/[0.02] p-4">
+          <p className="text-[11px] text-slate-500">Breaching now</p>
+          <p className="mt-1.5 text-2xl font-semibold tracking-tight text-rose-300">
+            {report.backlog.breaching}
+          </p>
+          <p className="mt-1 text-[10px] text-slate-500">
+            past the first-reply deadline
+          </p>
+        </div>
+      </section>
+
+      {report.byChannel.length > 0 && (
+        <section className="rounded-2xl border border-fg/[0.06] bg-fg/[0.02] p-4">
+          <p className="wax-eyebrow">Channel mix</p>
+          <ul className="mt-2 divide-y divide-fg/[0.04]">
+            {report.byChannel.map((row) => (
+              <li
+                key={row.channel}
+                className="flex items-center justify-between gap-3 py-1.5 text-[11px]"
+              >
+                <span className="text-slate-300 capitalize">{row.channel}</span>
+                <span className="text-slate-500">
+                  <strong className="text-fg">{row.inbound}</strong> in ·{" "}
+                  <strong className="text-fg">{row.outbound}</strong> out
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {report.workload.length > 0 && (
+        <section className="rounded-2xl border border-fg/[0.06] bg-fg/[0.02] p-4">
+          <p className="wax-eyebrow">Agent workload</p>
+          <ul className="mt-2 divide-y divide-fg/[0.04]">
+            {report.workload.map((agent) => (
+              <li
+                key={agent.id}
+                className="flex items-center justify-between gap-3 py-1.5 text-[11px]"
+              >
+                <span className="truncate text-slate-300">{agent.name}</span>
+                <span className="shrink-0 text-slate-500 capitalize">
+                  {agent.presence} · {agent.active} open
+                  {agent.breached > 0 && (
+                    <span className="ml-1 text-rose-300">
+                      {agent.breached} late
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="grid gap-3 sm:grid-cols-2">
         {metrics.map((metric) => (

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { median } from "@/app/lib/analytics/math";
 import { db } from "@/app/lib/db/db";
 
 export type DailyPoint = {
@@ -87,6 +88,88 @@ export function buildReport(workspaceId: string, days: ReportRange) {
     )
     .get(Date.now(), workspaceId, cutoff);
 
+  // First-reply latency, measured from the customer's first message in the
+  // thread. Conversations with no reply yet are excluded rather than counted
+  // as zero, which would flatter the median.
+  const responseGaps = db
+    .prepare(
+      `SELECT c.first_response_at, MIN(m.created_at) AS first_inbound
+       FROM conversations c
+       JOIN messages m ON m.conversation_id = c.id AND m.author = 'contact'
+       WHERE c.workspace_id = ? AND c.first_response_at IS NOT NULL
+         AND c.last_at >= ?
+       GROUP BY c.id`,
+    )
+    .all(workspaceId, cutoff)
+    .map((row) =>
+      (Number(row.first_response_at) - Number(row.first_inbound)) / 60_000,
+    )
+    .filter((minutes) => Number.isFinite(minutes) && minutes >= 0);
+
+  const middle = median(responseGaps);
+  const medianResponseMinutes = middle === null ? null : Math.round(middle * 10) / 10;
+
+  const byChannel = db
+    .prepare(
+      `SELECT c.channel_id,
+              SUM(CASE WHEN m.author = 'contact' THEN 1 ELSE 0 END) AS inbound,
+              SUM(CASE WHEN m.author = 'agent' AND m.internal = 0 THEN 1 ELSE 0 END)
+                AS outbound
+       FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       WHERE c.workspace_id = ? AND m.created_at >= ?
+       GROUP BY c.channel_id
+       ORDER BY inbound + outbound DESC`,
+    )
+    .all(workspaceId, cutoff)
+    .map((row) => ({
+      channel: String(row.channel_id),
+      inbound: Number(row.inbound ?? 0),
+      outbound: Number(row.outbound ?? 0),
+    }));
+
+  const workload = db
+    .prepare(
+      `SELECT u.id, u.name, COALESCE(p.status, 'away') AS presence,
+              (SELECT COUNT(*) FROM conversations c
+               WHERE c.workspace_id = m.workspace_id
+                 AND c.assignee_user_id = u.id
+                 AND c.status <> 'resolved') AS active,
+              (SELECT COUNT(*) FROM conversations c
+               WHERE c.workspace_id = m.workspace_id
+                 AND c.assignee_user_id = u.id
+                 AND c.status <> 'resolved'
+                 AND c.first_response_at IS NULL
+                 AND c.sla_due_at IS NOT NULL
+                 AND c.sla_due_at < ?) AS breached
+       FROM memberships m
+       JOIN users u ON u.id = m.user_id
+       LEFT JOIN agent_presence p
+         ON p.workspace_id = m.workspace_id AND p.user_id = m.user_id
+       WHERE m.workspace_id = ?
+       ORDER BY active DESC, u.name`,
+    )
+    .all(Date.now(), workspaceId)
+    .map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      presence: String(row.presence),
+      active: Number(row.active ?? 0),
+      breached: Number(row.breached ?? 0),
+    }));
+
+  const backlog = db
+    .prepare(
+      `SELECT
+         SUM(CASE WHEN status <> 'resolved' AND assignee_user_id IS NULL
+                   THEN 1 ELSE 0 END) AS unassigned,
+         SUM(CASE WHEN status <> 'resolved' AND first_response_at IS NULL
+                   AND sla_due_at IS NOT NULL AND sla_due_at < ?
+                   THEN 1 ELSE 0 END) AS breaching
+       FROM conversations WHERE workspace_id = ?`,
+    )
+    .get(Date.now(), workspaceId);
+
   return {
     days,
     points,
@@ -94,6 +177,13 @@ export function buildReport(workspaceId: string, days: ReportRange) {
     sla: {
       met: Number(sla?.met ?? 0),
       late: Number(sla?.late ?? 0),
+    },
+    medianResponseMinutes,
+    byChannel,
+    workload,
+    backlog: {
+      unassigned: Number(backlog?.unassigned ?? 0),
+      breaching: Number(backlog?.breaching ?? 0),
     },
   };
 }

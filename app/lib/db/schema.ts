@@ -69,7 +69,10 @@ export const SCHEMA = `
     handle TEXT NOT NULL,
     company TEXT NOT NULL,
     color TEXT NOT NULL,
-    telegram_chat_id TEXT
+    telegram_chat_id TEXT,
+    -- Seeded showroom contacts carry this flag so the desk can label them
+    -- instead of letting them pass for real customers.
+    is_demo INTEGER NOT NULL DEFAULT 0
   );
 
   -- Every address a contact is reachable at, one row per channel. The unique
@@ -290,6 +293,36 @@ export const SCHEMA = `
 
   CREATE INDEX IF NOT EXISTS invites_workspace_idx
     ON invites (workspace_id, created_at);
+
+  -- Who did what to data that cannot be undeleted or that left the workspace
+  -- (contact export/delete, role changes, invitations). Channel connects keep
+  -- their own more detailed channel_audit table.
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    actor_user_id TEXT,
+    actor_name TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL,
+    detail TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS audit_log_workspace_idx
+    ON audit_log (workspace_id, created_at);
+
+  -- A lease per background job. Timers are not durable across restarts and two
+  -- server instances would otherwise run the same retry queue twice, so a job
+  -- only starts when it can claim the lease, and the last outcome is visible.
+  CREATE TABLE IF NOT EXISTS job_state (
+    name TEXT PRIMARY KEY,
+    lease_until INTEGER NOT NULL DEFAULT 0,
+    last_started_at INTEGER,
+    last_finished_at INTEGER,
+    last_status TEXT,
+    last_error TEXT,
+    run_count INTEGER NOT NULL DEFAULT 0
+  );
 
   -- Fixed-window counters for the public endpoints that must not be hammered.
   CREATE TABLE IF NOT EXISTS rate_limits (

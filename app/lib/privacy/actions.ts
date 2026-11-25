@@ -1,6 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { recordAudit } from "@/app/lib/audit/log";
 import { requireUser } from "@/app/lib/auth/auth";
 import { db } from "@/app/lib/db/db";
 import { publishWorkspaceEvent } from "@/app/lib/workspace/realtime";
@@ -66,6 +67,15 @@ export async function exportContactData(
       .all(String(conversation.id)) as Record<string, unknown>[],
   }));
 
+  recordAudit({
+    workspaceId: user.workspaceId,
+    actorId: user.id,
+    actorName: user.name,
+    action: "contact.export",
+    target: String(contact.name),
+    detail: "Downloaded a full subject-access export",
+  });
+
   return {
     ok: true,
     data: {
@@ -113,6 +123,15 @@ export async function deleteContactData(contactId: string): Promise<PrivacyResul
     db.exec("ROLLBACK");
     throw error;
   }
+
+  recordAudit({
+    workspaceId: user.workspaceId,
+    actorId: user.id,
+    actorName: user.name,
+    action: "contact.delete",
+    target: String(contact.name),
+    detail: "Deleted the contact, every thread and every message",
+  });
 
   publishWorkspaceEvent(user.workspaceId, {
     kind: "presence",

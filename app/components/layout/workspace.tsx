@@ -402,6 +402,7 @@ export default function Workspace({
   }, [active, conversations, threads]);
 
   const totalUnread = channels.reduce((sum, channel) => sum + channel.unread, 0);
+  const demoContacts = contacts.filter((contact) => contact.demo).length;
 
   function selectChannelFilter(next: ChannelId | "all") {
     setChannelFilter(next);
@@ -658,6 +659,35 @@ export default function Workspace({
     }));
     router.refresh();
   }
+
+  // Quick commands for the palette: navigation plus the two triage actions that
+  // otherwise need a trip to the conversation header.
+  const paletteActions = [
+    ...tabs.map((item) => ({
+      label: `Go to ${item.label}`,
+      hint: "Section",
+      run: () => router.push(`/${item.id}`),
+    })),
+    {
+      label: "Go to Settings",
+      hint: "Section",
+      run: () => router.push("/settings"),
+    },
+    ...(active
+      ? [
+          {
+            label: `Assign ${active.contact.name} to me`,
+            hint: "Triage",
+            run: () => void changeAssignee(active.id, user.id),
+          },
+          {
+            label: `Resolve ${active.contact.name}`,
+            hint: "Triage",
+            run: () => void changeStatus(active.id, "resolved"),
+          },
+        ]
+      : []),
+  ];
 
   // Keyboard: ⌘K/Ctrl+K jumps to search, Alt+1…5 switches sections and "?"
   // lists the shortcuts. Nothing fires while the person is typing in a field.
@@ -942,6 +972,7 @@ export default function Workspace({
               onRunSearch={runSearch}
               onClear={clearSearch}
               onDismiss={() => setMobileSearch(false)}
+              actions={paletteActions}
             />
             <span className="hidden items-center gap-1.5 rounded-full border border-emerald-400/15 bg-emerald-400/[0.07] px-2.5 py-1 text-[11px] font-medium text-emerald-300 sm:flex">
               <LiveDot />
@@ -1051,6 +1082,7 @@ export default function Workspace({
               onRunSearch={runSearch}
               onClear={clearSearch}
               onDismiss={() => setMobileSearch(false)}
+              actions={paletteActions}
             />
           </div>
         )}
@@ -1082,9 +1114,20 @@ export default function Workspace({
                 </p>
               </div>
               <div className="flex items-end gap-4">
-                <p className="text-[11px] text-slate-400">
-                  <span className="wax-num text-slate-200">{totalUnread}</span>{" "}
-                  unread across {channels.length} channels
+                <p className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                  <span>
+                    <span className="wax-num text-slate-200">{totalUnread}</span>{" "}
+                    unread across {channels.length} channels
+                  </span>
+                  {demoContacts > 0 && (
+                    <Link
+                      href="/contacts"
+                      title="Seeded showroom contacts for exploring the desk"
+                      className="rounded-full border border-violet-400/25 bg-violet-400/10 px-2 py-0.5 text-[10px] font-medium text-violet-200 transition-colors hover:bg-violet-400/15"
+                    >
+                      {demoContacts} demo {demoContacts === 1 ? "contact" : "contacts"}
+                    </Link>
+                  )}
                 </p>
                 <Image
                   src={tab === "inbox" ? chatBanner : supportBanner}
@@ -1254,6 +1297,11 @@ export default function Workspace({
                   channelAudit={channelAudit}
                   members={data.members}
                   invites={data.invites}
+                  audit={data.audit}
+                  jobs={data.jobs}
+                  agents={agents}
+                  queues={queues}
+                  summary={summary}
                   notice={notice}
                 />
               )}
@@ -1336,6 +1384,11 @@ export default function Workspace({
               {[
                 ["⌘K / Ctrl K", "Focus search"],
                 ["Alt + 1…6", "Inbox, calendar, calls, meetings, contacts, analytics"],
+                ["j / k", "Move through the inbox queue"],
+                ["e", "Resolve the open conversation"],
+                ["a", "Assign it to you"],
+                ["n", "Switch between reply and internal note"],
+                ["/", "Search the queue"],
                 ["Enter", "Open the first search result"],
                 ["Esc", "Clear search or close this panel"],
                 ["?", "Show these shortcuts"],

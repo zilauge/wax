@@ -125,8 +125,8 @@ if (workspaces.length === 0) {
 
 const contactInsert = database.prepare(
   `INSERT OR IGNORE INTO contacts
-     (id, workspace_id, name, handle, company, color)
-   VALUES (?, ?, ?, ?, ?, ?)`,
+     (id, workspace_id, name, handle, company, color, is_demo)
+   VALUES (?, ?, ?, ?, ?, ?, 1)`,
 );
 const identityInsert = database.prepare(
   `INSERT OR IGNORE INTO contact_identities

@@ -75,6 +75,29 @@ export type Contact = {
   handle: string;
   company: string;
   color: string;
+  /** A seeded showroom contact, labelled in the desk rather than disguised. */
+  demo?: boolean;
+};
+
+/** One irreversible or data-egress action, kept for the workspace's audit. */
+export type AuditEntry = {
+  id: string;
+  actorName: string;
+  action: string;
+  target: string;
+  detail: string | null;
+  at: number;
+};
+
+/** The last outcome of a background job, shown in settings. */
+export type JobState = {
+  /** Internal identifier; not shown, because it can contain a workspace id. */
+  name: string;
+  label: string;
+  lastFinishedAt: number | null;
+  lastStatus: "ok" | "error" | null;
+  lastError: string | null;
+  runCount: number;
 };
 
 /** One address a contact is reachable at on one channel. */
@@ -261,6 +284,8 @@ export type WorkspaceData = {
   queues: Queue[];
   telegram: TelegramRouting;
   channelAudit: ChannelAuditEntry[];
+  audit: AuditEntry[];
+  jobs: JobState[];
   metrics: Metric[];
   summary: Summary;
   members: TeamMember[];

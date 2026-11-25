@@ -1,7 +1,10 @@
 import "server-only";
 
 import { db } from "@/app/lib/db/db";
+import { toMatchQuery } from "@/app/lib/search/query";
 import type { ChannelId } from "@/app/lib/types";
+
+export { toMatchQuery };
 
 export type MessageHit = {
   messageId: string;
@@ -11,20 +14,6 @@ export type MessageHit = {
   body: string;
   at: number;
 };
-
-/**
- * FTS5 treats punctuation as syntax, so every token is quoted and prefix
- * matched: `inv` finds "invoice" without letting a user inject operators.
- */
-export function toMatchQuery(query: string) {
-  const tokens = query
-    .split(/\s+/)
-    .map((token) => token.replace(/["*^:()]/g, "").trim())
-    .filter(Boolean)
-    .slice(0, 8);
-
-  return tokens.map((token) => `"${token}"*`).join(" AND ");
-}
 
 export function searchMessages(
   workspaceId: string,

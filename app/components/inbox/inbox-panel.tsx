@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { startRoomAction } from "@/app/lib/rooms/actions";
 import type {
@@ -146,6 +146,7 @@ export default function InboxPanel({
   const [templateName, setTemplateName] = useState("");
   const [templateLanguage, setTemplateLanguage] = useState("en_US");
   const [templateParams, setTemplateParams] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const visible = conversations
     .filter((conversation) => {
@@ -174,6 +175,76 @@ export default function InboxPanel({
     const timer = setInterval(update, 60_000);
     return () => clearInterval(timer);
   }, [active.id]);
+
+  // Desk triage without the mouse: move through the filtered queue, resolve,
+  // claim, switch between reply and note, and jump to the filter. It is bound to
+  // the window so it works after the person clicks anywhere in the panel, and
+  // it stays out of the way while a field has focus.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const typing = Boolean(
+        target &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.isContentEditable),
+      );
+
+      if (typing) {
+        if (event.key === "Escape") target?.blur();
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      const index = visible.findIndex(
+        (conversation) => conversation.id === active.id,
+      );
+
+      if (event.key === "j" || event.key === "ArrowDown") {
+        event.preventDefault();
+        const next = visible[Math.min(index + 1, visible.length - 1)];
+        if (next) onSelect(next.id);
+        return;
+      }
+      if (event.key === "k" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const previous = visible[Math.max(index - 1, 0)];
+        if (previous) onSelect(previous.id);
+        return;
+      }
+      if (event.key === "/") {
+        event.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      if (event.key === "e") {
+        event.preventDefault();
+        onStatusChange(active.id, "resolved");
+        return;
+      }
+      if (event.key === "a") {
+        event.preventDefault();
+        onAssign(active.id, currentUserId);
+        return;
+      }
+      if (event.key === "n") {
+        event.preventDefault();
+        onNoteModeChange(!noteMode);
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    active.id,
+    currentUserId,
+    noteMode,
+    onAssign,
+    onNoteModeChange,
+    onSelect,
+    onStatusChange,
+    visible,
+  ]);
 
   const windowClosed =
     now !== null &&
@@ -233,6 +304,7 @@ export default function InboxPanel({
           <label className="flex items-center gap-2 rounded-full border border-fg/[0.09] bg-fg/[0.03] px-3 py-1.5 transition-colors focus-within:border-indigo-400/40">
             <SearchIcon className="h-3.5 w-3.5 shrink-0 text-slate-500" />
             <input
+              ref={searchRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search contacts…"
@@ -284,7 +356,11 @@ export default function InboxPanel({
           })}
         </div>
 
-        <ul className="max-h-[540px] divide-y divide-fg/[0.04] overflow-y-auto">
+        <p className="px-3.5 pb-2 text-[9.5px] tracking-wide text-slate-600">
+          j/k move · e resolve · a claim · n note · / search
+        </p>
+
+        <ul className="max-h-[42vh] divide-y divide-fg/[0.04] overflow-y-auto lg:max-h-[540px]">
           {visible.length === 0 && (
             <li className="px-4 py-10 text-center text-xs text-slate-500">
               {unreadOnly
@@ -321,6 +397,11 @@ export default function InboxPanel({
                       <span className="truncate text-[12.5px] font-semibold text-fg">
                         {conversation.contact.name}
                       </span>
+                      {conversation.contact.demo && (
+                        <span className="shrink-0 rounded-full border border-violet-400/25 bg-violet-400/10 px-1 text-[8.5px] font-medium tracking-wide text-violet-200 uppercase">
+                          Demo
+                        </span>
+                      )}
                       <span className="ml-auto shrink-0 text-[10px] text-slate-500">
                         {conversation.lastAt}
                       </span>
@@ -358,8 +439,13 @@ export default function InboxPanel({
             />
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-fg">
+            <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-fg">
               {active.contact.name}
+              {active.contact.demo && (
+                <span className="rounded-full border border-violet-400/25 bg-violet-400/10 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-violet-200 uppercase">
+                  Demo
+                </span>
+              )}
             </p>
             <p className="truncate text-[11px] text-slate-500">
               {active.status === "open" ? (
@@ -643,7 +729,10 @@ export default function InboxPanel({
             )}
           </form>
         ) : (
-          <form onSubmit={onSend} className="border-t border-fg/[0.06] px-4 py-3">
+          <form
+            onSubmit={onSend}
+            className="sticky bottom-0 z-10 border-t border-fg/[0.06] bg-[var(--wax-ink)]/95 px-4 py-3 backdrop-blur"
+          >
             <div className="flex items-center gap-2 rounded-full border border-fg/[0.09] bg-fg/[0.03] py-1.5 pr-1.5 pl-2 transition-colors focus-within:border-indigo-400/40">
               <button
                 type="button"

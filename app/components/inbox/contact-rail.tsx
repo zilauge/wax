@@ -114,6 +114,14 @@ export default function ContactRail({
           <ContactAvatar seed={contact.id} size="lg" />
           <p className="mt-3.5 flex items-center gap-1.5 text-sm font-semibold tracking-tight text-fg">
             {contact.name}
+            {contact.demo && (
+              <span
+                title="Seeded showroom contact, not a real customer"
+                className="rounded-full border border-violet-400/25 bg-violet-400/10 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-violet-200 uppercase"
+              >
+                Demo
+              </span>
+            )}
             <span
               className={`h-2 w-2 rounded-full ${status.dot}`}
               title={status.label}

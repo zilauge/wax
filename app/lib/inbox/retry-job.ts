@@ -1,15 +1,14 @@
 import "server-only";
 
 import { db } from "@/app/lib/db/db";
+import { backoffMs } from "@/app/lib/inbox/backoff";
 import { dispatchDelivery, type DeliveryTarget } from "@/app/lib/inbox/delivery";
+import { runJob } from "@/app/lib/jobs/runner";
 import { publishWorkspaceEvent } from "@/app/lib/workspace/realtime";
 
 const MAX_ATTEMPTS = 3;
 
-/** 1 minute, then 5, then 15 — each failure waits longer than the last. */
-export function backoffMs(retryCount: number) {
-  return [60_000, 5 * 60_000, 15 * 60_000][Math.min(retryCount, 2)];
-}
+export { backoffMs };
 
 type DueRow = {
   id: string;
@@ -116,9 +115,9 @@ export function startRetryLoop() {
   if (process.env.WAX_RETRY_DISABLED === "1") return;
 
   const timer = setInterval(() => {
-    void retryDueMessages().catch((error) => {
-      console.error("[retry] failed", error);
-    });
+    // The lease keeps two server instances, or a timer racing an external
+    // cron, from delivering the same failed message twice.
+    runJob("delivery-retry", () => retryDueMessages());
   }, 60_000);
   timer.unref?.();
 }

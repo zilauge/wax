@@ -1,13 +1,19 @@
 import Link from "next/link";
 import type {
+  Agent,
+  AuditEntry,
   Channel,
   ChannelAuditEntry,
   ChannelConnection,
+  JobState,
+  Queue,
+  Summary,
   TelegramRouting,
 } from "@/app/lib/types";
 import ChannelManager from "@/app/components/onboarding/channel-manager";
 import PhoneCard from "@/app/components/onboarding/phone-card";
 import TeamPanel from "@/app/components/settings/team-panel";
+import WorkloadPanel from "@/app/components/settings/workload-panel";
 import type {
   PendingInvite,
   TeamMember,
@@ -50,6 +56,11 @@ export default function SettingsPanel({
   channelAudit,
   members,
   invites,
+  audit,
+  jobs,
+  agents,
+  queues,
+  summary,
   notice = null,
 }: {
   user: WorkspaceUser;
@@ -59,6 +70,11 @@ export default function SettingsPanel({
   channelAudit: ChannelAuditEntry[];
   members: TeamMember[];
   invites: PendingInvite[];
+  audit: AuditEntry[];
+  jobs: JobState[];
+  agents: Agent[];
+  queues: Queue[];
+  summary: Summary;
   notice?: string | null;
 }) {
   const channelNames = new Map(
@@ -176,6 +192,8 @@ export default function SettingsPanel({
           isOwner={user.role === "owner"}
         />
 
+        <WorkloadPanel agents={agents} queues={queues} summary={summary} />
+
         <PhoneCard phone={user.phone} verified={user.phoneVerified} />
 
         <ChannelManager
@@ -183,6 +201,96 @@ export default function SettingsPanel({
           connections={connections}
           canManage={user.role !== "agent"}
         />
+
+        <section className="py-2">
+          <p className="wax-eyebrow px-4 pt-2 pb-1">Activity log</p>
+          {audit.length === 0 ? (
+            <p className="px-4 pb-2 text-[11px] text-slate-500">
+              Nothing irreversible has happened yet. Contact exports and
+              deletions, role changes and invitations are recorded here.
+            </p>
+          ) : (
+            <ul className="divide-y divide-fg/[0.04]">
+              {audit.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="flex items-start justify-between gap-4 px-4 py-2"
+                >
+                  <span className="min-w-0 text-[11px] text-slate-300">
+                    <span className="font-medium text-slate-200">
+                      {entry.actorName}
+                    </span>{" "}
+                    {entry.action.replace(".", " ")}{" "}
+                    <span className="text-slate-400">{entry.target}</span>
+                    {entry.detail && (
+                      <span className="block text-[10px] text-slate-500">
+                        {entry.detail}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-right text-[10px] text-slate-500">
+                    {new Date(entry.at).toLocaleString("en-GB", {
+                      day: "2-digit",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="py-2">
+          <p                   className="wax-eyebrow px-4 pt-2 pb-1">
+            Background jobs
+          </p>
+          {jobs.length === 0 ? (
+            <p className="px-4 pb-2 text-[11px] text-slate-500">
+              No background job has run yet. Delivery retries, SLA escalation
+              and daily backups record their last outcome here.
+            </p>
+          ) : (
+            <ul className="divide-y divide-fg/[0.04]">
+              {jobs.map((job) => (
+                <li key={job.name} className="px-4 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate text-[11px] font-medium text-slate-300">
+                      {job.label}
+                    </span>
+                    <span
+                      className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-medium ${
+                        job.lastStatus === "error"
+                          ? "border-rose-400/25 bg-rose-400/10 text-rose-300"
+                          : job.lastStatus === "ok"
+                            ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
+                            : "border-fg/[0.1] text-slate-400"
+                      }`}
+                    >
+                      {job.lastStatus ?? "never run"}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-slate-500">
+                    {job.lastFinishedAt
+                      ? `last ran ${new Date(job.lastFinishedAt).toLocaleString("en-GB", {
+                          day: "2-digit",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })} · ${job.runCount} runs`
+                      : `${job.runCount} runs`}
+                  </p>
+                  {job.lastError && (
+                    <p className="mt-0.5 text-[10px] text-rose-300/90">
+                      {job.lastError}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <section className="py-2">
           <p                   className="wax-eyebrow px-4 pt-2 pb-1">

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "@/app/lib/db/db";
+import { runJob } from "@/app/lib/jobs/runner";
 import { publishWorkspaceEvent } from "@/app/lib/workspace/realtime";
 
 /**
@@ -18,7 +19,7 @@ import { publishWorkspaceEvent } from "@/app/lib/workspace/realtime";
  * cannot both claim the same conversation. No available agent means nothing is
  * changed: the header's breach count is what keeps it visible.
  */
-export function escalateBreaches(workspaceId: string): number {
+function escalateOverdue(workspaceId: string): number {
   const overdue = db
     .prepare(
       `SELECT id FROM conversations
@@ -71,4 +72,16 @@ export function escalateBreaches(workspaceId: string): number {
   }
 
   return escalated;
+}
+
+/**
+ * Dashboard loads are the trigger, but the lease makes the sweep safe: two
+ * tabs opening at once (or two instances) escalate the backlog once, not twice,
+ * and the outcome is recorded alongside the other background jobs.
+ */
+export function escalateBreaches(workspaceId: string): number {
+  const outcome = runJob(`sla-escalation:${workspaceId}`, () =>
+    escalateOverdue(workspaceId),
+  );
+  return outcome.ran ? outcome.result : 0;
 }

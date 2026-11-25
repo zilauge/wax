@@ -57,8 +57,16 @@ export default function ContactsPanel({
             >
               <ContactAvatar seed={contact.id} />
               <div className="min-w-0">
-                <p className="truncate text-[13px] font-semibold text-fg">
+                <p className="flex items-center gap-1.5 truncate text-[13px] font-semibold text-fg">
                   {contact.name}
+                  {contact.demo && (
+                    <span
+                      title="Seeded showroom contact, not a real customer"
+                      className="rounded-full border border-violet-400/25 bg-violet-400/10 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-violet-200 uppercase"
+                    >
+                      Demo
+                    </span>
+                  )}
                 </p>
                 <p className="truncate text-[11px] text-slate-500">
                   {contact.company || contact.handle}

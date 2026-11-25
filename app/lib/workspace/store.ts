@@ -11,6 +11,8 @@ import { getProvider } from "@/app/lib/channels/providers";
 import { resolveTelegramBindingForWorkspace } from "@/app/lib/channels/telegram-binding";
 import { db } from "@/app/lib/db/db";
 import { listInvites, listMembers } from "@/app/lib/team/store";
+import { listAudit } from "@/app/lib/audit/log";
+import { listJobStates } from "@/app/lib/jobs/runner";
 import type {
   Agent,
   Call,
@@ -168,7 +170,8 @@ export async function getWorkspaceData(
               q.name AS queue_name, q.color AS queue_color,
               u.name AS assignee_name,
               ct.name AS contact_name, ct.handle AS contact_handle,
-              ct.company AS contact_company, ct.color AS contact_color
+              ct.company AS contact_company, ct.color AS contact_color,
+              ct.is_demo AS contact_demo
        FROM conversations c
        JOIN contacts ct ON ct.id = c.contact_id
        LEFT JOIN queues q ON q.id = c.queue_id
@@ -229,6 +232,7 @@ export async function getWorkspaceData(
       handle: text(row.contact_handle),
       company: text(row.contact_company),
       color: text(row.contact_color),
+      demo: Number(row.contact_demo ?? 0) === 1,
     },
     topic: text(row.topic),
     status: text(row.status) as Conversation["status"],
@@ -253,7 +257,7 @@ export async function getWorkspaceData(
 
   const contactRows = db
     .prepare(
-      "SELECT id, name, handle, company, color FROM contacts WHERE workspace_id = ? ORDER BY name",
+      "SELECT id, name, handle, company, color, is_demo FROM contacts WHERE workspace_id = ? ORDER BY name",
     )
     .all(workspaceId);
 
@@ -286,6 +290,7 @@ export async function getWorkspaceData(
       handle: text(row.handle),
       company: text(row.company),
       color: text(row.color),
+      demo: Number(row.is_demo ?? 0) === 1,
       channel: latest
         ? (text(latest.channel_id) as ChannelId)
         : (identities[0]?.channel ?? "telegram"),
@@ -488,6 +493,8 @@ export async function getWorkspaceData(
     queues,
     telegram,
     channelAudit,
+    audit: listAudit(workspaceId),
+    jobs: listJobStates(workspaceId),
     metrics,
     summary,
     members: listMembers(workspaceId),

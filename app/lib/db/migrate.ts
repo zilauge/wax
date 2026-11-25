@@ -404,6 +404,17 @@ function backfillSearchIndex(database: DatabaseSync) {
   }
 }
 
+/** Demo contacts are labelled, not hidden: the flag arrived after the seeder. */
+function addContactDemoColumn(database: DatabaseSync) {
+  if (!columnsOf(database, "contacts").has("is_demo")) {
+    database.exec(
+      "ALTER TABLE contacts ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+
+  database.exec("UPDATE contacts SET is_demo = 1 WHERE id LIKE 'demo-%'");
+}
+
 /** Channel tiles draw provider logos, so the stored monogram is dead weight. */
 function dropChannelMonogram(database: DatabaseSync) {
   if (columnsOf(database, "channels").has("monogram")) {
@@ -431,6 +442,7 @@ function addConnectionInboundState(database: DatabaseSync) {
 
 export function migrate(database: DatabaseSync) {
   dropChannelMonogram(database);
+  addContactDemoColumn(database);
   backfillChannels(database);
 
   // Channel connections and messages both gained columns after launch. The

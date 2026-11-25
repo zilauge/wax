@@ -36,8 +36,11 @@ export default function DeskSearch({
   onRunSearch,
   onClear,
   onDismiss,
+  actions = [],
 }: {
   variant: "inline" | "sheet";
+  /** Quick commands, shown while the field is empty. */
+  actions?: { label: string; hint: string; run: () => void }[];
   query: string;
   needle: string;
   matches: SearchMatches;
@@ -82,6 +85,7 @@ export default function DeskSearch({
     matches.contacts.length +
     matches.channels.length +
     visibleHits.length;
+  const showActions = !needle && actions.length > 0;
 
   const choose = (select: () => void) => {
     select();
@@ -103,6 +107,11 @@ export default function DeskSearch({
             }
             if (event.key === "Enter") {
               event.preventDefault();
+              if (!query.trim() && actions[0]) {
+                actions[0].run();
+                onDismiss();
+                return;
+              }
               onRunSearch();
               onDismiss();
             }
@@ -126,7 +135,7 @@ export default function DeskSearch({
         )}
       </label>
 
-      {needle && (
+      {(needle || showActions) && (
         <div
           className={
             inline
@@ -135,6 +144,32 @@ export default function DeskSearch({
           }
         >
           <ul className="max-h-80 overflow-y-auto">
+            {showActions && (
+              <li className="wax-eyebrow px-3 pt-2 pb-1">
+                Actions
+              </li>
+            )}
+            {showActions &&
+              actions.map((action) => (
+                <li key={action.label}>
+                  <button
+                    type="button"
+                    onClick={() => choose(action.run)}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fg/[0.04]"
+                  >
+                    <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md border border-fg/[0.09] text-[9px] text-slate-400">
+                      ⌘
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-fg">
+                      {action.label}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-slate-500">
+                      {action.hint}
+                    </span>
+                  </button>
+                </li>
+              ))}
+
             {matches.conversations.length > 0 && (
               <li className="wax-eyebrow px-3 pt-2 pb-1">
                 Conversations
@@ -247,16 +282,18 @@ export default function DeskSearch({
             )}
           </ul>
 
-          <button
-            type="button"
-            onClick={() => {
-              onRunSearch();
-              onDismiss();
-            }}
-            className="block w-full border-t border-fg/[0.06] px-3 py-2 text-center text-[10px] font-medium text-indigo-400 hover:bg-fg/[0.04] hover:text-indigo-300"
-          >
-            Open in inbox
-          </button>
+          {!showActions && (
+            <button
+              type="button"
+              onClick={() => {
+                onRunSearch();
+                onDismiss();
+              }}
+              className="block w-full border-t border-fg/[0.06] px-3 py-2 text-center text-[10px] font-medium text-indigo-400 hover:bg-fg/[0.04] hover:text-indigo-300"
+            >
+              Open in inbox
+            </button>
+          )}
         </div>
       )}
     </div>

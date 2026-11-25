@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
+import { recordAudit } from "@/app/lib/audit/log";
 import { requireUser } from "@/app/lib/auth/auth";
 import { publishWorkspaceEvent } from "@/app/lib/workspace/realtime";
 import {
@@ -61,6 +62,15 @@ export async function inviteMemberAction(input: {
     createdBy: user.id,
   });
 
+  recordAudit({
+    workspaceId: user.workspaceId,
+    actorId: user.id,
+    actorName: user.name,
+    action: "team.invite",
+    target: email,
+    detail: `Invited as ${role}`,
+  });
+
   publishWorkspaceEvent(user.workspaceId, {
     kind: "presence",
     text: `${user.name} invited ${email}`,
@@ -101,6 +111,15 @@ export async function changeMemberRoleAction(
   const changed = changeMemberRole(user.workspaceId, userId, role);
   if (!changed) return { ok: false, error: "That person is not on this workspace." };
 
+  recordAudit({
+    workspaceId: user.workspaceId,
+    actorId: user.id,
+    actorName: user.name,
+    action: "team.role",
+    target: userId,
+    detail: `Role changed to ${role}`,
+  });
+
   publishWorkspaceEvent(user.workspaceId, {
     kind: "presence",
     text: `A teammate's role changed to ${role}`,
@@ -131,6 +150,15 @@ export async function removeMemberAction(userId: string): Promise<TeamResult> {
 
   const removed = removeMember(user.workspaceId, userId);
   if (!removed) return { ok: false, error: "That person is not on this workspace." };
+
+  recordAudit({
+    workspaceId: user.workspaceId,
+    actorId: user.id,
+    actorName: user.name,
+    action: "team.remove",
+    target: target.name,
+    detail: `Removed as ${target.role}`,
+  });
 
   publishWorkspaceEvent(user.workspaceId, {
     kind: "presence",

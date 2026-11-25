@@ -109,7 +109,7 @@
   --wax-slate-300: #465269;
   --wax-slate-400: #5a6a85;
   --wax-slate-500: #6b7a90;
-  --wax-slate-600: #8a97a9;
+  --wax-slate-600: #5d6b82;
 }
 
 @theme inline {
@@ -648,6 +648,28 @@ body {
 [aria-current="page"] .wax-nav-marker {
   transform: scaleX(1);
   opacity: 1;
+}
+
+/* Keyboard focus must be visible on every control, including the custom
+   buttons and selects that remove the native outline. Mouse clicks do not
+   trigger it, so the visual design is unchanged for pointer users. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--wax-accent-500);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Respect the operating system's motion preference: the desk keeps its
+   layout and colour, it only stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 

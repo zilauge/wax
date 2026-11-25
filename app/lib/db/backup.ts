@@ -3,6 +3,7 @@ import "server-only";
 import { mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { db } from "@/app/lib/db/db";
+import { runJob } from "@/app/lib/jobs/runner";
 
 const BACKUP_DIR = join(process.cwd(), ".data", "backups");
 const KEEP = 7;
@@ -57,21 +58,28 @@ export function lastBackupAt() {
 }
 
 /**
+ * Writes today's copy if none exists yet, then trims the history. Returns the
+ * file it created, or null when today's copy was already there — the job runner
+ * records that outcome either way.
+ */
+export function runDailyBackupIfDue() {
+  const last = lastBackupAt();
+  if (last !== null && Date.now() - last < ONE_DAY) return null;
+  const path = createBackup("daily");
+  pruneBackups();
+  return path;
+}
+
+/**
  * One backup a day, kept to the last week. It runs on boot and then on a timer,
  * so a self-hosted install needs no cron entry. WAX_BACKUP_DISABLED=1 opts out.
+ * The lease means boot, the timer and an external tick cannot all write at once.
  */
 export function startBackupScheduler() {
   if (process.env.WAX_BACKUP_DISABLED === "1") return;
 
   const run = () => {
-    try {
-      const last = lastBackupAt();
-      if (last !== null && Date.now() - last < ONE_DAY) return;
-      createBackup("daily");
-      pruneBackups();
-    } catch (error) {
-      console.error("[backup] nightly copy failed", error);
-    }
+    runJob("daily-backup", runDailyBackupIfDue);
   };
 
   const timer = setInterval(run, 6 * 60 * 60 * 1000);

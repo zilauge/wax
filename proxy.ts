@@ -19,6 +19,9 @@ const isPublicRoute = createRouteMatcher([
   "/api/webhooks(.*)",
   "/api/channels/(.*)/callback",
   "/api/sync(.*)",
+  // A scheduler has no session. The route itself requires WAX_JOBS_TOKEN and
+  // returns 404 while that is unset.
+  "/api/jobs/tick",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

@@ -61,7 +61,10 @@ export async function startChannelConnectionAction(
   }
 
   const headerStore = await headers();
-  const host = headerStore.get("host") ?? "localhost:3000";
+  const host =
+    headerStore.get("host") ??
+    process.env.WAX_PUBLIC_HOST ??
+    "172.20.204.10:53062";
   const proto = headerStore.get("x-forwarded-proto") ?? "http";
   const origin = appOrigin(host, proto);
   const redirectUri = `${origin}/api/channels/${provider.id}/callback`;

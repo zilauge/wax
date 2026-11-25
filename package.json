@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 0.0.0.0 -p 53062",
     "dev:lan": "next dev --hostname 0.0.0.0 -p 53062",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test tests/channel-rules.test.ts tests/calendar-rules.test.ts tests/db-schema.test.ts",
+    "test": "node --test tests/channel-rules.test.ts tests/calendar-rules.test.ts tests/db-schema.test.ts tests/search-query.test.ts tests/retry-backoff.test.ts tests/analytics-math.test.ts",
     "db:backup": "node scripts/backup.mjs",
+    "db:restore": "node scripts/restore.mjs",
     "db:demo-contacts": "node scripts/seed-demo-contacts.mjs",
     "telegram:bind": "node --env-file-if-exists=.env.local scripts/bind-telegram.mjs"
   },
