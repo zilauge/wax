@@ -54,6 +54,7 @@ export default function DeskSearch({
   onDismiss: () => void;
 }) {
   const [hits, setHits] = useState<MessageHit[]>([]);
+  const [open, setOpen] = useState(false);
   const inline = variant === "inline";
 
   // Message bodies are searched on the server (FTS5) and debounced, so typing
@@ -89,11 +90,20 @@ export default function DeskSearch({
 
   const choose = (select: () => void) => {
     select();
+    setOpen(false);
     onDismiss();
   };
 
   return (
-    <div className={inline ? "group relative hidden md:block" : "relative w-full"}>
+    <div
+      className={inline ? "relative hidden md:block" : "relative w-full"}
+      onFocus={() => setOpen(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setOpen(false);
+        }
+      }}
+    >
       <label className="flex items-center gap-2 rounded-xl border border-fg/[0.07] bg-fg/[0.03] px-3 py-2 text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors focus-within:border-indigo-400/40 focus-within:bg-fg/[0.05]">
         <SearchIcon className="h-4 w-4" />
         <input
@@ -102,6 +112,7 @@ export default function DeskSearch({
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
+              setOpen(false);
               onClear();
               onDismiss();
             }
@@ -135,11 +146,12 @@ export default function DeskSearch({
         )}
       </label>
 
-      {(needle || showActions) && (
+      {open && (needle || showActions) && (
         <div
+          onMouseDown={(event) => event.preventDefault()}
           className={
             inline
-              ? "absolute right-0 z-30 mt-2 hidden w-80 overflow-hidden rounded-2xl border border-fg/[0.09] bg-[var(--wax-raised)] shadow-[0_30px_60px_-24px_rgba(0,0,0,1)] group-focus-within:block"
+              ? "absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-2xl border border-fg/[0.09] bg-[var(--wax-raised)] shadow-[0_30px_60px_-24px_rgba(0,0,0,1)]"
               : "mt-2 overflow-hidden rounded-2xl border border-fg/[0.09] bg-[var(--wax-raised)] shadow-[0_30px_60px_-24px_rgba(0,0,0,1)]"
           }
         >

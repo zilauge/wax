@@ -14,10 +14,12 @@ npm install
 npm run dev          # http://172.20.204.10:53062
 ```
 
-Both scripts bind all interfaces on port 53062. This machine's LAN address is
-`172.20.204.10`; open the desk at `http://172.20.204.10:53062`, not localhost,
-so phones on the same network and the Clerk redirect behave identically. Set
-`WAX_PUBLIC_HOST` if the machine's address changes.
+Both scripts bind all interfaces on port 53062. Set the address the desk is
+opened at in `WAX_PUBLIC_HOST` as `host[:port]` (for example
+`WAX_PUBLIC_HOST=172.20.204.10:53062` in `.env.local`), then open
+`http://172.20.204.10:53062`, not localhost. That one value feeds both the
+dev-server origin allow-list and the fallback used when building OAuth redirect
+URLs, so moving to another network is an environment change, not a code edit.
 
 Sign in with Clerk. A new account gets an empty workspace with its channel
 catalogue and two queues; nothing is fabricated.
