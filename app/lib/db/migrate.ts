@@ -332,22 +332,82 @@ function rebuildMessages(database: DatabaseSync) {
 }
 
 /** Channels added after the first workspaces existed. */
-const CATALOGUE_ADDITIONS: [string, string, string, string][] = [
-  ["sms", "SMS", "Sms", "#f22f46"],
-  ["discord", "Discord", "Dc", "#5865f2"],
+const CATALOGUE_ADDITIONS: [string, string, string][] = [
+  ["sms", "SMS", "#f22f46"],
+  ["discord", "Discord", "#5865f2"],
 ];
 
 function backfillChannels(database: DatabaseSync) {
   const insert = database.prepare(
     `INSERT OR IGNORE INTO channels
-       (workspace_id, id, name, handle, monogram, color, connected)
-     VALUES (?, ?, ?, '', ?, ?, 0)`,
+       (workspace_id, id, name, handle, color, connected)
+     VALUES (?, ?, ?, '', ?, 0)`,
   );
 
   for (const workspace of database.prepare("SELECT id FROM workspaces").all()) {
-    for (const [id, name, monogram, color] of CATALOGUE_ADDITIONS) {
-      insert.run(String(workspace.id), id, name, monogram, color);
+    for (const [id, name, color] of CATALOGUE_ADDITIONS) {
+      insert.run(String(workspace.id), id, name, color);
     }
+  }
+}
+
+/**
+ * Time zones arrived after the calendar did. Existing rows are backfilled with
+ * the server's zone, which is exactly how their blocks and hours were being
+ * read before, so nothing shifts on the upgrade.
+ */
+function addUserTimezoneColumn(database: DatabaseSync) {
+  if (columnsOf(database, "users").has("timezone")) return;
+
+  database.exec("ALTER TABLE users ADD COLUMN timezone TEXT");
+
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  database.prepare("UPDATE users SET timezone = ? WHERE timezone IS NULL").run(zone);
+}
+
+/** Clerk became the identity provider, so a local user row links to it. */
+function addUserClerkColumn(database: DatabaseSync) {
+  if (columnsOf(database, "users").has("clerk_user_id")) return;
+  database.exec("ALTER TABLE users ADD COLUMN clerk_user_id TEXT");
+}
+
+/** Internal notes and delivery retries arrived after the first messages table. */
+function addMessageColumns(database: DatabaseSync) {
+  const columns = columnsOf(database, "messages");
+  if (!columns.has("internal")) {
+    database.exec(
+      "ALTER TABLE messages ADD COLUMN internal INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+  if (!columns.has("retry_count")) {
+    database.exec(
+      "ALTER TABLE messages ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+  if (!columns.has("last_attempt_at")) {
+    database.exec("ALTER TABLE messages ADD COLUMN last_attempt_at INTEGER");
+  }
+}
+
+/**
+ * Backfills the full-text index once for databases whose messages predate it.
+ * `rebuild` is the documented way to repopulate an external-content FTS table.
+ */
+function backfillSearchIndex(database: DatabaseSync) {
+  const indexed = database
+    .prepare("SELECT COUNT(*) AS n FROM messages_fts")
+    .get();
+  const stored = database.prepare("SELECT COUNT(*) AS n FROM messages").get();
+
+  if (Number(indexed?.n ?? 0) !== Number(stored?.n ?? 0)) {
+    database.exec("INSERT INTO messages_fts (messages_fts) VALUES ('rebuild')");
+  }
+}
+
+/** Channel tiles draw provider logos, so the stored monogram is dead weight. */
+function dropChannelMonogram(database: DatabaseSync) {
+  if (columnsOf(database, "channels").has("monogram")) {
+    database.exec("ALTER TABLE channels DROP COLUMN monogram");
   }
 }
 
@@ -370,6 +430,7 @@ function addConnectionInboundState(database: DatabaseSync) {
 }
 
 export function migrate(database: DatabaseSync) {
+  dropChannelMonogram(database);
   backfillChannels(database);
 
   // Channel connections and messages both gained columns after launch. The
@@ -378,6 +439,10 @@ export function migrate(database: DatabaseSync) {
   addConnectionCursor(database);
   addConnectionInboundState(database);
   rebuildMessages(database);
+  addUserClerkColumn(database);
+  addUserTimezoneColumn(database);
+  addMessageColumns(database);
+  backfillSearchIndex(database);
 
   // Mobile numbers and their verification landed after the first release.
   const userColumns = columnsOf(database, "users");

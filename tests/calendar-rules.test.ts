@@ -6,13 +6,19 @@ import {
   defaultWeeklyHours,
   freeRanges,
   isoDay,
+  isValidTimeZone,
   outsideWorkingHours,
   overlaps,
   parseWeekParam,
+  resolveTimeZone,
   startOfDay,
   startOfWeek,
   validateBlock,
+  systemTimeZone,
   weekdayIndex,
+  zonedDayStarts,
+  zonedTimeLabel,
+  zonedWeekday,
   type TimeBlock,
   type WeeklyHours,
 } from "../app/lib/calendar/rules.ts";
@@ -176,4 +182,83 @@ test("weeks start on Monday and the week param round-trips", () => {
   assert.equal(parseWeekParam(isoDay(monday)) !== undefined, true);
   assert.equal(weekdayIndex(parseWeekParam(isoDay(monday))), 0);
   assert.ok(parseWeekParam("not-a-week") > 0);
+});
+
+test("the same instant reads differently in each zone", () => {
+  const instant = Date.UTC(2026, 10, 23, 9, 0);
+
+  assert.equal(zonedTimeLabel(instant, "UTC"), "09:00");
+  assert.equal(zonedTimeLabel(instant, "Europe/London"), "09:00");
+  assert.equal(zonedTimeLabel(instant, "Europe/Berlin"), "10:00");
+  assert.equal(zonedTimeLabel(instant, "Asia/Tokyo"), "18:00");
+  assert.equal(zonedTimeLabel(instant, "America/New_York"), "04:00");
+});
+
+test("a day edge belongs to the zone it is read in", () => {
+  // 20:00 UTC on the 23rd is already the 24th in Tokyo, still the 23rd in New York.
+  const instant = Date.UTC(2026, 10, 23, 20, 0);
+
+  assert.equal(isoDay(instant, "UTC"), "2026-11-23");
+  assert.equal(isoDay(instant, "Asia/Tokyo"), "2026-11-24");
+  assert.equal(isoDay(instant, "America/New_York"), "2026-11-23");
+
+  assert.equal(startOfDay(instant, "Asia/Tokyo"), Date.UTC(2026, 10, 23, 15, 0));
+  assert.equal(
+    startOfDay(instant, "America/New_York"),
+    Date.UTC(2026, 10, 23, 5, 0),
+  );
+});
+
+test("working hours are judged in the owner's zone", () => {
+  // 09:00 in Tokyo: inside a 09:00-17:00 Tokyo day, but 00:00 in London.
+  const startAt = Date.UTC(2026, 10, 23, 0, 0);
+  const endAt = startAt + 60 * 60 * 1000;
+  const hours = defaultWeeklyHours();
+
+  assert.equal(outsideWorkingHours(startAt, endAt, hours, "Asia/Tokyo"), false);
+  assert.equal(outsideWorkingHours(startAt, endAt, hours, "Europe/London"), true);
+});
+
+test("a block cannot cross midnight in the calendar's zone", () => {
+  // 23:30-00:30 Tokyo does not cross midnight in UTC, and vice versa.
+  const startAt = Date.UTC(2026, 10, 23, 14, 30);
+  const endAt = startAt + 60 * 60 * 1000;
+  const hours = Array.from({ length: 7 }, () => ({
+    startMinute: 0,
+    endMinute: 24 * 60,
+  })) as WeeklyHours;
+
+  const tokyo = validateBlock(
+    { title: "Late call", startAt, endAt, hours },
+    "Asia/Tokyo",
+  );
+  const utc = validateBlock({ title: "Late call", startAt, endAt, hours }, "UTC");
+
+  assert.match(String(tokyo), /same day/);
+  assert.equal(utc, null);
+});
+
+test("day starts survive a daylight-saving change", () => {
+  // US DST starts on 8 March 2026: that local day is 23 hours long.
+  const zone = "America/New_York";
+  const days = zonedDayStarts(Date.UTC(2026, 2, 7, 17, 0), zone, 3);
+
+  // The 7th and 8th are both 24 hours apart: the change happens *during* the
+  // 8th, so the 8th-to-9th gap is the short one.
+  assert.equal(days[1] - days[0], 24 * 60 * 60 * 1000);
+  assert.equal(days[2] - days[1], 23 * 60 * 60 * 1000);
+});
+
+test("the weekday follows the zone too", () => {
+  // Sunday 22:00 UTC is Monday 07:00 in Tokyo.
+  const instant = Date.UTC(2026, 10, 22, 22, 0);
+
+  assert.equal(zonedWeekday(instant, "UTC"), 6);
+  assert.equal(zonedWeekday(instant, "Asia/Tokyo"), 0);
+});
+
+test("an unknown zone is rejected instead of throwing", () => {
+  assert.equal(isValidTimeZone("Europe/London"), true);
+  assert.equal(isValidTimeZone("Mars/Olympus_Mons"), false);
+  assert.equal(resolveTimeZone("Mars/Olympus_Mons"), systemTimeZone());
 });

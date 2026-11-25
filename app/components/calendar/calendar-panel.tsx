@@ -7,17 +7,21 @@ import {
   createBlockAction,
   deleteBlockAction,
   saveHoursAction,
+  saveTimeZoneAction,
 } from "@/app/lib/calendar/actions";
+import type { CalendarTeamMember } from "@/app/lib/calendar/store";
 import {
   BLOCK_KINDS,
-  addDays,
   conflictsFor,
   defaultWeeklyHours,
   minutesToLabel,
   outsideWorkingHours,
   startOfDay,
-  timeLabel,
-  weekdayIndex,
+  zoneAbbreviation,
+  zonedDayStarts,
+  zonedMinutes,
+  zonedTimeLabel,
+  zonedWeekday,
   type BlockKind,
   type TimeBlock,
   type WeeklyHours,
@@ -46,14 +50,10 @@ const ROW_HEIGHT = 56;
 const GRID_START_MINUTE = HOUR_START * 60;
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function dayStartOf(ts: number) {
-  return startOfDay(ts);
-}
-
 export default function CalendarPanel({
   blocks,
   hours,
-  agents,
+  team,
   me,
   today,
   weekStart,
@@ -61,10 +61,12 @@ export default function CalendarPanel({
   prevWeek,
   nextWeek,
   thisWeek,
+  timeZone,
+  nowTs,
 }: {
   blocks: TimeBlock[];
   hours: WeeklyHours;
-  agents: { id: string; name: string }[];
+  team: CalendarTeamMember[];
   me: { id: string; name: string };
   today: number;
   weekStart: number;
@@ -72,7 +74,13 @@ export default function CalendarPanel({
   prevWeek: string;
   nextWeek: string;
   thisWeek: string;
+  /** The viewer's zone: every label and column edge is read in it. */
+  timeZone: string;
+  /** Page-load instant, used for the team lane's "their today" reading. */
+  nowTs: number;
 }) {
+  const dayStartOf = (ts: number) => startOfDay(ts, timeZone);
+  const labelInViewerZone = (ts: number) => zonedTimeLabel(ts, timeZone);
   const router = useRouter();
   const [saving, startSaving] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -97,9 +105,21 @@ export default function CalendarPanel({
   );
 
   const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)),
-    [weekStart],
+    () => zonedDayStarts(weekStart, timeZone, 7),
+    [weekStart, timeZone],
   );
+
+  // The zone picker lists IANA zones; the browser's own zone is always offered
+  // even on engines that do not implement supportedValuesOf.
+  const zoneOptions = useMemo(() => {
+    const supported = (
+      Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
+    ).supportedValuesOf?.("timeZone");
+    const zones = new Set<string>(supported ?? []);
+    zones.add(timeZone);
+    return [...zones].sort();
+  }, [timeZone]);
+  const [zoneDraft, setZoneDraft] = useState(timeZone);
 
   const draftClashes = draft
     ? conflictsFor({ userId: me.id, ...draft }, blocks)
@@ -107,7 +127,7 @@ export default function CalendarPanel({
   const myClash = draftClashes.filter((block) => block.userId === me.id);
   const teamClash = draftClashes.filter((block) => block.userId !== me.id);
   const draftOutside = draft
-    ? outsideWorkingHours(draft.startAt, draft.endAt, hours)
+    ? outsideWorkingHours(draft.startAt, draft.endAt, hours, timeZone)
     : false;
 
   function openSlot(day: number, hour: number) {
@@ -171,40 +191,62 @@ export default function CalendarPanel({
     });
   }
 
+  function saveZone() {
+    if (zoneDraft === timeZone) return;
+    setError(null);
+    startSaving(async () => {
+      const result = await saveTimeZoneAction(zoneDraft);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setNotice(result.notice);
+      router.refresh();
+    });
+  }
+
   const todayBlocks = blocks.filter(
     (block) => dayStartOf(block.startAt) === today,
   );
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-3 border-b border-white/[0.06] px-4 py-3">
-        <h2 className="text-sm font-medium text-white">Calendar</h2>
-        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-slate-300">
+      <div className="flex flex-wrap items-center gap-3 border-b border-fg/[0.06] px-4 py-3.5">
+        <h2 className="text-[13px] font-semibold tracking-tight text-fg">
+          Calendar
+        </h2>
+        <span className="wax-num rounded-full border border-fg/[0.08] bg-fg/[0.04] px-2 py-0.5 text-[10px] font-medium text-slate-300">
           {weekLabel}
+        </span>
+        <span
+          title="Times on this grid are read in this zone"
+          className="rounded-full border border-indigo-400/20 bg-indigo-500/10 px-2 py-0.5 text-[10px] text-indigo-200"
+        >
+          {timeZone}
         </span>
         <div className="ml-auto flex items-center gap-1">
           <Link
             href={`/calendar?week=${prevWeek}`}
-            className="rounded-lg border border-white/[0.07] px-2 py-1 text-[11px] text-slate-400 hover:text-white"
+            className="rounded-lg border border-fg/[0.07] px-2 py-1 text-[11px] text-slate-400 hover:text-fg"
           >
             ←
           </Link>
           <Link
             href={`/calendar?week=${thisWeek}`}
-            className="rounded-lg border border-white/[0.07] px-2 py-1 text-[11px] text-slate-400 hover:text-white"
+            className="rounded-lg border border-fg/[0.07] px-2 py-1 text-[11px] text-slate-400 hover:text-fg"
           >
             This week
           </Link>
           <Link
             href={`/calendar?week=${nextWeek}`}
-            className="rounded-lg border border-white/[0.07] px-2 py-1 text-[11px] text-slate-400 hover:text-white"
+            className="rounded-lg border border-fg/[0.07] px-2 py-1 text-[11px] text-slate-400 hover:text-fg"
           >
             →
           </Link>
           <button
             type="button"
             onClick={() => setShowHours((open) => !open)}
-            className="ml-2 flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-white/[0.08]"
+            className="ml-2 flex items-center gap-1.5 rounded-lg border border-fg/[0.08] bg-fg/[0.04] px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-fg/[0.08]"
           >
             <ClockIcon className="h-3.5 w-3.5" />
             Boundaries
@@ -227,12 +269,41 @@ export default function CalendarPanel({
       )}
 
       {showHours && (
-        <div className="mx-4 mt-3 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
-          <p className="text-xs font-semibold text-white">Your working hours</p>
+        <div className="mx-4 mt-3 rounded-2xl border border-fg/[0.07] bg-fg/[0.02] p-4">
+          <p className="text-xs font-semibold text-fg">Your working hours</p>
           <p className="mt-1 text-[11px] text-slate-500">
             Everything outside this window is shaded and cannot be booked. Days
-            you leave off are treated as non-working.
+            you leave off are treated as non-working. The window is wall-clock
+            in your zone, so it stays the same after travel.
           </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label className="text-[11px] text-slate-400" htmlFor="calendar-timezone">
+              Time zone
+            </label>
+            <select
+              id="calendar-timezone"
+              value={zoneDraft}
+              onChange={(event) => setZoneDraft(event.target.value)}
+              className="max-w-[240px] rounded-lg border border-fg/10 bg-[var(--wax-raised)] px-2 py-1 text-[11px] text-slate-200"
+            >
+              {zoneOptions.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={saveZone}
+              disabled={saving || zoneDraft === timeZone}
+              className="rounded-lg border border-fg/[0.1] px-2.5 py-1 text-[11px] text-slate-200 hover:bg-fg/[0.06] disabled:opacity-50"
+            >
+              Save zone
+            </button>
+            <span className="rounded-full border border-fg/10 bg-fg/5 px-2 py-0.5 text-[10px] text-slate-400">
+              {zoneAbbreviation(nowTs, timeZone)} now
+            </span>
+          </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {DAY_NAMES.map((name, weekday) => {
               const on = days.includes(weekday);
@@ -250,7 +321,7 @@ export default function CalendarPanel({
                   className={`rounded-lg px-2.5 py-1 text-[11px] font-medium ${
                     on
                       ? "bg-indigo-500/25 text-indigo-100"
-                      : "bg-white/[0.03] text-slate-500"
+                      : "bg-fg/[0.03] text-slate-500"
                   }`}
                 >
                   {name}
@@ -268,7 +339,7 @@ export default function CalendarPanel({
                   const [h, m] = event.target.value.split(":").map(Number);
                   if (Number.isFinite(h)) setStartMinute(h * 60 + (m || 0));
                 }}
-                className="ml-2 rounded-lg border border-white/10 bg-[#0b0c10] px-2 py-1 text-[11px] text-slate-200"
+                className="ml-2 rounded-lg border border-fg/10 bg-[var(--wax-raised)] px-2 py-1 text-[11px] text-slate-200"
               />
             </label>
             <label className="text-[11px] text-slate-400">
@@ -280,7 +351,7 @@ export default function CalendarPanel({
                   const [h, m] = event.target.value.split(":").map(Number);
                   if (Number.isFinite(h)) setEndMinute(h * 60 + (m || 0));
                 }}
-                className="ml-2 rounded-lg border border-white/10 bg-[#0b0c10] px-2 py-1 text-[11px] text-slate-200"
+                className="ml-2 rounded-lg border border-fg/10 bg-[var(--wax-raised)] px-2 py-1 text-[11px] text-slate-200"
               />
             </label>
             <button
@@ -302,12 +373,12 @@ export default function CalendarPanel({
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="What are you protecting?"
-              className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0b0c10] px-3 py-1.5 text-xs text-white placeholder:text-slate-600"
+              className="min-w-0 flex-1 rounded-lg border border-fg/10 bg-[var(--wax-raised)] px-3 py-1.5 text-xs text-fg placeholder:text-slate-600"
             />
             <select
               value={kind}
               onChange={(event) => setKind(event.target.value as BlockKind)}
-              className="rounded-lg border border-white/10 bg-[#0b0c10] px-2 py-1.5 text-[11px] text-slate-200"
+              className="rounded-lg border border-fg/10 bg-[var(--wax-raised)] px-2 py-1.5 text-[11px] text-slate-200"
             >
               {BLOCK_KINDS.map((value) => (
                 <option key={value} value={value}>
@@ -323,30 +394,31 @@ export default function CalendarPanel({
                 weekday: "short",
                 day: "numeric",
                 month: "short",
+                timeZone,
               })}
             </span>
             <input
               type="time"
-              value={timeLabel(draft.startAt)}
+              value={labelInViewerZone(draft.startAt)}
               onChange={(event) => {
                 const [h, m] = event.target.value.split(":").map(Number);
                 if (Number.isFinite(h)) {
                   shiftDraft("startAt", dayStartOf(draft.startAt) + (h * 60 + (m || 0)) * 60000);
                 }
               }}
-              className="rounded-lg border border-white/10 bg-[#0b0c10] px-2 py-1 text-[11px] text-slate-200"
+              className="rounded-lg border border-fg/10 bg-[var(--wax-raised)] px-2 py-1 text-[11px] text-slate-200"
             />
             <span>to</span>
             <input
               type="time"
-              value={timeLabel(draft.endAt)}
+              value={labelInViewerZone(draft.endAt)}
               onChange={(event) => {
                 const [h, m] = event.target.value.split(":").map(Number);
                 if (Number.isFinite(h)) {
                   shiftDraft("endAt", dayStartOf(draft.startAt) + (h * 60 + (m || 0)) * 60000);
                 }
               }}
-              className="rounded-lg border border-white/10 bg-[#0b0c10] px-2 py-1 text-[11px] text-slate-200"
+              className="rounded-lg border border-fg/10 bg-[var(--wax-raised)] px-2 py-1 text-[11px] text-slate-200"
             />
           </div>
 
@@ -373,12 +445,12 @@ export default function CalendarPanel({
               value={note}
               onChange={(event) => setNote(event.target.value)}
               placeholder="Note for the team (optional)"
-              className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0b0c10] px-3 py-1.5 text-[11px] text-white placeholder:text-slate-600"
+              className="min-w-0 flex-1 rounded-lg border border-fg/10 bg-[var(--wax-raised)] px-3 py-1.5 text-[11px] text-fg placeholder:text-slate-600"
             />
             <button
               type="button"
               onClick={() => setDraft(null)}
-              className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] text-slate-300"
+              className="rounded-lg border border-fg/10 px-3 py-1.5 text-[11px] text-slate-300"
             >
               Cancel
             </button>
@@ -395,16 +467,18 @@ export default function CalendarPanel({
       )}
 
       <div className="px-4 py-4">
-        <div className="overflow-hidden rounded-2xl border border-white/[0.06]">
-          <div className="flex border-b border-white/[0.06] bg-white/[0.02]">
+        <div className="overflow-hidden rounded-2xl border border-fg/[0.06] bg-fg/[0.012] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <div className="flex border-b border-fg/[0.06] bg-fg/[0.02]">
             <div className="w-14 shrink-0" />
             {weekDays.map((day, index) => {
               const isToday = day === today;
               return (
                 <div
                   key={day}
-                  className={`flex-1 px-2 py-2 text-center text-[10px] ${
-                    isToday ? "text-indigo-300" : "text-slate-500"
+                  className={`flex-1 border-l border-fg/[0.05] px-2 py-2 text-center text-[10px] ${
+                    isToday
+                      ? "bg-indigo-500/[0.055] text-indigo-300"
+                      : "text-slate-500"
                   }`}
                 >
                   <span className="block font-semibold tracking-wide uppercase">
@@ -423,7 +497,7 @@ export default function CalendarPanel({
               {Array.from({ length: HOUR_END - HOUR_START }, (_, index) => (
                 <div
                   key={index}
-                  className="pr-2 text-right text-[10px] text-slate-600"
+                  className="wax-num pr-2 text-right text-[10px] text-slate-600"
                   style={{ height: ROW_HEIGHT }}
                 >
                   {String(HOUR_START + index).padStart(2, "0")}:00
@@ -433,7 +507,7 @@ export default function CalendarPanel({
 
             <div className="grid flex-1 grid-cols-7">
               {weekDays.map((day) => {
-                const window = hours[weekdayIndex(day)] ?? null;
+                const window = hours[zonedWeekday(day, timeZone)] ?? null;
                 const outsideTop = window
                   ? Math.max(0, (window.startMinute - GRID_START_MINUTE) / 60) *
                     ROW_HEIGHT
@@ -451,7 +525,9 @@ export default function CalendarPanel({
                 return (
                   <div
                     key={day}
-                    className="relative border-l border-white/[0.05]"
+                    className={`relative border-l border-fg/[0.05] ${
+                      day === today ? "bg-fg/[0.018]" : ""
+                    }`}
                     style={{ height: ROW_HEIGHT * (HOUR_END - HOUR_START) }}
                   >
                     {Array.from(
@@ -460,9 +536,9 @@ export default function CalendarPanel({
                         <button
                           key={index}
                           type="button"
-                          aria-label={`Add a block on ${DAY_NAMES[weekdayIndex(day)]} at ${HOUR_START + index}:00`}
+                          aria-label={`Add a block on ${DAY_NAMES[zonedWeekday(day, timeZone)]} at ${HOUR_START + index}:00`}
                           onClick={() => openSlot(day, HOUR_START + index)}
-                          className="block w-full border-t border-white/[0.03] hover:bg-white/[0.03]"
+                          className="block w-full border-t border-fg/[0.03] hover:bg-fg/[0.03]"
                           style={{ height: ROW_HEIGHT }}
                         />
                       ),
@@ -487,8 +563,7 @@ export default function CalendarPanel({
                       .filter((block) => dayStartOf(block.startAt) === day)
                       .map((block) => {
                         const top =
-                          ((new Date(block.startAt).getHours() * 60 +
-                            new Date(block.startAt).getMinutes() -
+                          ((zonedMinutes(block.startAt, timeZone) -
                             GRID_START_MINUTE) /
                             60) *
                           ROW_HEIGHT;
@@ -497,33 +572,54 @@ export default function CalendarPanel({
                           ((block.endAt - block.startAt) / 3_600_000) * ROW_HEIGHT,
                         );
                         const style = KIND_STYLE[block.kind];
+                        // A 22px block cannot hold a title, a meta line and a
+                        // 20px delete target. Short blocks collapse to the title
+                        // alone so nothing is clipped behind the control.
+                        const compact = height < 34;
+                        const mine = block.userId === me.id;
 
                         return (
                           <div
                             key={block.id}
-                            className={`absolute inset-x-1 overflow-hidden rounded-md border px-1.5 py-0.5 text-[10px] leading-tight ${style.box}`}
+                            className={`wax-block absolute inset-x-1 overflow-hidden rounded-lg border px-1.5 text-[10px] leading-tight shadow-[0_2px_8px_-6px_rgba(0,0,0,0.9)] ${compact ? "py-0" : "py-0.5"} ${style.box}`}
                             style={{ top, height }}
-                            title={`${block.title} · ${timeLabel(block.startAt)}–${timeLabel(block.endAt)}`}
+                            title={`${block.title} · ${labelInViewerZone(block.startAt)}–${labelInViewerZone(block.endAt)}`}
                           >
-                            <p className="truncate font-semibold">{block.title}</p>
-                            <p className="truncate opacity-70">
-                              {block.userName.split(" ")[0]} ·{" "}
-                              {timeLabel(block.startAt)}
-                            </p>
-                            {block.roomId && (
-                              <Link
-                                href={`/rooms/${block.roomId}`}
-                                className="mt-0.5 inline-block rounded bg-black/30 px-1 text-[9px] font-semibold text-white/90"
-                              >
-                                Join
-                              </Link>
-                            )}
-                            {block.userId === me.id && (
+                            <div
+                              className={`flex h-full min-w-0 flex-col ${
+                                compact ? "justify-center" : ""
+                              } ${mine ? "pr-6" : "pr-1"}`}
+                            >
+                              <p className="truncate font-semibold">
+                                {block.title}
+                              </p>
+                              {!compact && (
+                                <>
+                                  <p className="truncate opacity-70">
+                                    {block.userName.split(" ")[0]} ·{" "}
+                                    {labelInViewerZone(block.startAt)}
+                                  </p>
+                                  {block.roomId && (
+                                    <Link
+                                      href={`/rooms/${block.roomId}`}
+                                      className="mt-0.5 inline-block rounded bg-black/30 px-1 text-[9px] font-semibold text-white/90"
+                                    >
+                                      Join
+                                    </Link>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                            {mine && (
                               <button
                                 type="button"
                                 onClick={() => remove(block.id)}
                                 aria-label={`Remove ${block.title}`}
-                                className="absolute top-0 right-0 px-1 text-[9px] text-white/60 hover:text-white"
+                                className={`absolute right-0 z-10 flex h-5 w-5 cursor-pointer items-center justify-center text-xs leading-none text-white/60 hover:bg-black/35 hover:text-white focus-visible:bg-black/35 focus-visible:text-white focus-visible:outline-none ${
+                                  compact
+                                    ? "top-1/2 -translate-y-1/2 rounded-l-md"
+                                    : "top-0 rounded-bl-md"
+                                }`}
                               >
                                 ×
                               </button>
@@ -539,36 +635,71 @@ export default function CalendarPanel({
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-            <p className="text-xs font-semibold text-white">Team lane · today</p>
+          <div className="wax-tile p-4">
+            <p className="text-xs font-semibold text-fg">Team lane · today</p>
             <p className="mt-0.5 text-[11px] text-slate-500">
-              What each teammate has protected, and where they are free.
+              Each teammate&apos;s own day, read in their own zone.
             </p>
             <ul className="mt-3 space-y-2">
-              {agents.map((agent) => {
-                const own = todayBlocks.filter(
-                  (block) => block.userId === agent.id,
+              {team.map((member) => {
+                // "Today" and the working window are the member's, not ours: a
+                // block at 09:00 in Tokyo is today in Tokyo even when the
+                // viewer's clock says otherwise.
+                const memberDayStart = startOfDay(nowTs, member.timeZone);
+                const memberWindow =
+                  member.hours[zonedWeekday(nowTs, member.timeZone)] ?? null;
+                const own = blocks.filter(
+                  (block) =>
+                    block.userId === member.id &&
+                    startOfDay(block.startAt, member.timeZone) === memberDayStart,
                 );
-                const window = hours[weekdayIndex(today)] ?? null;
+                const minutesNow = zonedMinutes(nowTs, member.timeZone);
+                const openNow = Boolean(
+                  memberWindow &&
+                    minutesNow >= memberWindow.startMinute &&
+                    minutesNow < memberWindow.endMinute,
+                );
                 const focus = own.filter((block) => block.kind === "focus");
+
                 return (
-                  <li key={agent.id} className="flex flex-wrap items-center gap-2">
-                    <span className="w-28 truncate text-[11px] text-slate-300">
-                      {agent.id === me.id ? "You" : agent.name}
+                  <li key={member.id} className="flex flex-wrap items-center gap-2">
+                    <span className="w-32 shrink-0 truncate text-[11px] text-slate-300">
+                      {member.id === me.id ? "You" : member.name}
+                      <span
+                        className="ml-1 text-[9px] text-slate-600"
+                        title={member.timeZone}
+                      >
+                        {zoneAbbreviation(nowTs, member.timeZone)}
+                      </span>
                     </span>
                     {own.length === 0 ? (
                       <span className="text-[10px] text-slate-600">
-                        {window ? "Open all day" : "Off today"}
+                        {memberWindow ? "Nothing booked" : "Off today"}
                       </span>
                     ) : (
                       own.slice(0, 3).map((block) => (
                         <span
                           key={block.id}
                           className={`rounded-md border px-1.5 py-0.5 text-[10px] ${KIND_STYLE[block.kind].box}`}
+                          title={`${block.title} · ${zonedTimeLabel(
+                            block.startAt,
+                            member.timeZone,
+                          )} their time`}
                         >
-                          {block.title} · {timeLabel(block.startAt)}
+                          {block.title} ·{" "}
+                          {zonedTimeLabel(block.startAt, member.timeZone)}
                         </span>
                       ))
+                    )}
+                    {openNow && memberWindow && (
+                      <span className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-200">
+                        Until {minutesToLabel(memberWindow.endMinute)}
+                      </span>
+                    )}
+                    {!openNow && memberWindow && (
+                      <span className="rounded-full border border-fg/10 px-1.5 py-0.5 text-[9px] text-slate-400">
+                        Off now
+                      </span>
                     )}
                     {focus.length > 0 && (
                       <span className="rounded-full border border-indigo-400/30 bg-indigo-500/10 px-1.5 py-0.5 text-[9px] text-indigo-200">
@@ -581,12 +712,12 @@ export default function CalendarPanel({
             </ul>
           </div>
 
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-            <p className="text-xs font-semibold text-white">Today</p>
+          <div className="wax-tile p-4">
+            <p className="text-xs font-semibold text-fg">Today</p>
             <p className="mt-0.5 text-[11px] text-slate-500">
               {todayBlocks.filter((block) => block.userId === me.id).length}{" "}
               block(s) · {minutesToLabel(startMinute)}–
-              {minutesToLabel(endMinute)} working window
+              {minutesToLabel(endMinute)} working window · {timeZone}
             </p>
             <div className="mt-3 space-y-1.5">
               {todayBlocks
@@ -594,7 +725,7 @@ export default function CalendarPanel({
                 .map((block) => (
                   <div
                     key={block.id}
-                    className="flex items-center gap-2 rounded-lg border border-white/[0.05] px-2 py-1.5"
+                    className="flex items-center gap-2 rounded-xl border border-fg/[0.05] bg-fg/[0.015] px-2 py-1.5"
                   >
                     <span
                       className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${KIND_STYLE[block.kind].box}`}
@@ -605,7 +736,8 @@ export default function CalendarPanel({
                       {block.title}
                     </span>
                     <span className="text-[10px] text-slate-500">
-                      {timeLabel(block.startAt)}–{timeLabel(block.endAt)}
+                      {labelInViewerZone(block.startAt)}–
+                      {labelInViewerZone(block.endAt)}
                     </span>
                   </div>
                 ))}

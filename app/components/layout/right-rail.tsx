@@ -48,18 +48,18 @@ export default function RightRail({
       >
         <ul className="mt-3 space-y-2">
           {meetings.length === 0 && (
-            <li className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-center text-[10px] text-slate-500">
+            <li className="wax-tile-soft px-3 py-4 text-center text-[10px] text-slate-500">
               Nothing scheduled. Rooms appear once a video channel is connected.
             </li>
           )}
           {meetings.slice(0, 3).map((meeting) => (
             <li
               key={meeting.id}
-              className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
+              className="wax-tile-soft px-3 py-2.5"
             >
               <div className="flex items-center gap-2">
                 <ChannelTile channel={channelMap[meeting.channel]} size="sm" />
-                <p className="min-w-0 flex-1 truncate text-[11px] font-medium text-white">
+                <p className="min-w-0 flex-1 truncate text-[11px] font-medium text-fg">
                   {meeting.title}
                 </p>
               </div>
@@ -97,7 +97,7 @@ export default function RightRail({
       >
         <ul className="mt-3 space-y-2">
           {calls.length === 0 && (
-            <li className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-center text-[10px] text-slate-500">
+            <li className="wax-tile-soft px-3 py-4 text-center text-[10px] text-slate-500">
               The queue is empty. Inbound calls appear once a phone channel is
               connected.
             </li>
@@ -106,7 +106,7 @@ export default function RightRail({
             <li key={call.id} className="flex items-center gap-2">
               <ChannelTile channel={channelMap[call.channel]} size="sm" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[11px] font-medium text-white">
+                <p className="truncate text-[11px] font-medium text-fg">
                   {call.caller}
                 </p>
                 <p className="truncate text-[10px] text-slate-500">
@@ -115,7 +115,7 @@ export default function RightRail({
               </div>
               <Link
                 href="/calls"
-                className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[10px] font-semibold text-slate-200 hover:bg-white/[0.08]"
+                className="wax-press rounded-lg border border-fg/[0.08] bg-fg/[0.04] px-2 py-1 text-[10px] font-semibold text-slate-200 hover:border-fg/[0.16] hover:bg-fg/[0.08] hover:text-fg"
               >
                 Pick up
               </Link>
@@ -141,11 +141,11 @@ export default function RightRail({
                 <span className="relative">
                   <Avatar initials={initials(agent.name)} color="#6366f1" size="sm" />
                   <span
-                    className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#0c0d11] ${presence.dot}`}
+                    className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#0b0d12] ${presence.dot}`}
                   />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[11px] font-medium text-white">
+                  <p className="truncate text-[11px] font-medium text-fg">
                     {agent.name}
                   </p>
                   <p className="truncate text-[10px] text-slate-500 capitalize">
@@ -210,7 +210,7 @@ export default function RightRail({
           ))}
         </ul>
         {disconnected.length > 0 && (
-          <p className="mt-3 border-t border-white/[0.06] pt-2.5 text-[10px] leading-relaxed text-slate-500">
+          <p className="mt-3 border-t border-fg/[0.06] pt-2.5 text-[10px] leading-relaxed text-slate-500">
             {disconnected.map((channel) => channel.name).join(", ")} not
             connected — comments and live chat will not sync until you connect
             the channel.

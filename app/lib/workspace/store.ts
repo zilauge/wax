@@ -10,6 +10,7 @@ import { replyWindowEndsAt } from "@/app/lib/channels/window";
 import { getProvider } from "@/app/lib/channels/providers";
 import { resolveTelegramBindingForWorkspace } from "@/app/lib/channels/telegram-binding";
 import { db } from "@/app/lib/db/db";
+import { listInvites, listMembers } from "@/app/lib/team/store";
 import type {
   Agent,
   Call,
@@ -103,6 +104,8 @@ function toMessage(row: Row): Message {
             ? "read"
             : "sent",
     error: row.error ? text(row.error) : null,
+    internal: Number(row.internal ?? 0) === 1,
+    retryCount: Number(row.retry_count ?? 0),
   };
 }
 
@@ -154,7 +157,7 @@ export async function getWorkspaceData(
 
   const channelRows = db
     .prepare(
-      "SELECT id, name, handle, monogram, color, connected FROM channels WHERE workspace_id = ? ORDER BY rowid",
+      "SELECT id, name, handle, color, connected FROM channels WHERE workspace_id = ? ORDER BY rowid",
     )
     .all(workspaceId);
 
@@ -171,18 +174,31 @@ export async function getWorkspaceData(
        LEFT JOIN queues q ON q.id = c.queue_id
        LEFT JOIN users u ON u.id = c.assignee_user_id
        WHERE c.workspace_id = ?
-       ORDER BY c.last_at DESC`,
+       ORDER BY c.last_at DESC
+       LIMIT 300`,
     )
     .all(workspaceId);
 
   const messageRows = db
     .prepare(
-      `SELECT m.id, m.conversation_id, m.author, m.body, m.created_at, m.status, m.error,
-              c.channel_id AS channel_id
-       FROM messages m
-       JOIN conversations c ON c.id = m.conversation_id
-       WHERE c.workspace_id = ?
-       ORDER BY m.created_at ASC`,
+      // Only the most recent 200 messages of each thread are loaded; a long
+      // WhatsApp history must not turn every workspace render into a full read.
+      `WITH ranked AS (
+         SELECT m.id, m.conversation_id, m.author, m.body, m.created_at,
+                m.status, m.error, m.internal, m.retry_count,
+                c.channel_id AS channel_id,
+                ROW_NUMBER() OVER (
+                  PARTITION BY m.conversation_id
+                  ORDER BY m.created_at DESC, m.rowid DESC
+                ) AS rn
+         FROM messages m
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE c.workspace_id = ?
+       )
+       SELECT id, conversation_id, author, body, created_at, status, error,
+              internal, retry_count, channel_id
+       FROM ranked WHERE rn <= 200
+       ORDER BY created_at ASC`,
     )
     .all(workspaceId);
 
@@ -274,6 +290,7 @@ export async function getWorkspaceData(
         ? (text(latest.channel_id) as ChannelId)
         : (identities[0]?.channel ?? "telegram"),
       identities,
+      threadId: latest ? text(latest.id) : null,
     };
   });
 
@@ -292,7 +309,6 @@ export async function getWorkspaceData(
       id,
       name: text(row.name),
       handle: text(row.handle),
-      monogram: text(row.monogram),
       color: text(row.color),
       // Telegram is usable once the bot token exists; a social channel only
       // after its OAuth callback stored a linked account.
@@ -474,5 +490,7 @@ export async function getWorkspaceData(
     channelAudit,
     metrics,
     summary,
+    members: listMembers(workspaceId),
+    invites: listInvites(workspaceId),
   };
 }

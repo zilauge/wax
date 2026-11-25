@@ -10,7 +10,7 @@ import { SCHEMA } from "@/app/lib/db/schema";
  * Server-side persistence. Node 24 ships SQLite, so the app needs no database
  * driver dependency; the file lives next to the project (gitignored).
  */
-const DB_PATH =
+export const DB_PATH =
   process.env.WAX_DB_PATH ?? join(process.cwd(), ".data", "wax.db");
 
 function openDatabase() {

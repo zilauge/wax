@@ -11,6 +11,13 @@ type SignalMessage =
   | { type: "peer-joined"; peer: { id: string; name: string } }
   | { type: "peer-left"; peer: { id: string } }
   | {
+      type: "chat";
+      from: string;
+      name: string;
+      text: string;
+      at: number;
+    }
+  | {
       type: "signal";
       from: string;
       payload:
@@ -18,9 +25,30 @@ type SignalMessage =
         | { kind: "ice"; candidate: RTCIceCandidateInit };
     };
 
+type ChatLine = { id: string; name: string; text: string; at: number; mine: boolean };
+
+/**
+ * STUN alone works on many home networks; a TURN relay is what makes calls
+ * survive strict corporate NAT. Set NEXT_PUBLIC_TURN_URL/USERNAME/CREDENTIAL to
+ * add one — without it a blocked pair simply fails to connect, and the room
+ * says so rather than looking frozen.
+ */
 const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    ...(process.env.NEXT_PUBLIC_TURN_URL
+      ? [
+          {
+            urls: process.env.NEXT_PUBLIC_TURN_URL,
+            username: process.env.NEXT_PUBLIC_TURN_USERNAME,
+            credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL,
+          },
+        ]
+      : []),
+  ],
 };
+
+const MAX_PEERS = 6;
 
 /**
  * A live room: the browser captures media locally, opens an SSE stream for
@@ -45,6 +73,8 @@ export default function RoomStage({
   const [camOn, setCamOn] = useState(true);
   const [peers, setPeers] = useState<RemotePeer[]>([]);
   const [copied, setCopied] = useState(false);
+  const [chat, setChat] = useState<ChatLine[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
 
   const localVideo = useRef<HTMLVideoElement | null>(null);
   const localStream = useRef<MediaStream | null>(null);
@@ -159,6 +189,20 @@ export default function RoomStage({
         return;
       }
 
+      if (message.type === "chat") {
+        setChat((current) => [
+          ...current,
+          {
+            id: `${message.from}-${message.at}`,
+            name: message.name,
+            text: message.text,
+            at: message.at,
+            mine: false,
+          },
+        ]);
+        return;
+      }
+
       const pc = connections.current.get(message.from);
       if (!pc) return;
       const payload = message.payload;
@@ -248,11 +292,39 @@ export default function RoomStage({
     };
 
     source.onerror = () => {
-      setNotice("Signaling dropped — reconnecting automatically.");
+      setNotice(
+        `Signaling dropped. The room may also be full (${MAX_PEERS} people maximum) — try again in a moment.`,
+      );
     };
 
     setJoined(true);
     setConnecting(false);
+  }
+
+  async function sendChat(event: React.FormEvent) {
+    event.preventDefault();
+    const text = chatDraft.trim();
+    if (!text) return;
+
+    setChatDraft("");
+    setChat((current) => [
+      ...current,
+      {
+        id: `${peerId.current}-${Date.now()}`,
+        name: "You",
+        text,
+        at: Date.now(),
+        mine: true,
+      },
+    ]);
+
+    await fetch(`/api/rooms/${roomId}/signal`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "chat", from: peerId.current, text }),
+    }).catch(() => {
+      setNotice("That message did not reach the room.");
+    });
   }
 
   function toggleMic() {
@@ -280,12 +352,12 @@ export default function RoomStage({
   }
 
   return (
-    <div className="min-h-screen bg-[#08090b] px-4 py-8 text-slate-200">
+    <div className="wax-app min-h-screen px-4 py-8 text-slate-200">
       <div className="mx-auto w-full max-w-5xl">
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] text-slate-500">Room · {me.name}</p>
-            <h1 className="truncate text-xl font-semibold tracking-tight text-white">
+            <p className="wax-eyebrow">Room · {me.name}</p>
+            <h1 className="truncate text-xl font-semibold tracking-tight text-fg">
               {roomName}
             </h1>
           </div>
@@ -293,13 +365,13 @@ export default function RoomStage({
             <button
               type="button"
               onClick={copyInvite}
-              className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-slate-300 hover:text-white"
+              className="wax-press inline-flex items-center rounded-lg border border-fg/[0.09] bg-fg/[0.035] px-3 py-2 text-[11px] font-semibold text-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:border-fg/[0.16] hover:bg-fg/[0.075] hover:text-fg"
             >
               {copied ? "Link copied" : "Copy invite link"}
             </button>
             <Link
               href="/meetings"
-              className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[11px] font-medium text-slate-300 hover:text-white"
+              className="wax-press inline-flex items-center rounded-lg border border-fg/[0.09] bg-fg/[0.035] px-3 py-2 text-[11px] font-semibold text-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:border-fg/[0.16] hover:bg-fg/[0.075] hover:text-fg"
             >
               Back to meetings
             </Link>
@@ -318,9 +390,11 @@ export default function RoomStage({
         )}
 
         {!joined ? (
-          <div className="mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-6 py-16 text-center">
-            <VideoIcon className="mx-auto h-7 w-7 text-slate-600" />
-            <p className="mt-3 text-sm font-medium text-slate-200">
+          <div className="wax-panel wax-enter mt-6 px-6 py-16 text-center">
+            <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-fg/[0.08] bg-fg/[0.03] text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+              <VideoIcon className="h-5 w-5" />
+            </span>
+            <p className="mt-4 text-sm font-medium text-slate-200">
               Join the room
             </p>
             <p className="mx-auto mt-1.5 max-w-sm text-[11px] leading-relaxed text-slate-500">
@@ -331,7 +405,7 @@ export default function RoomStage({
               type="button"
               onClick={join}
               disabled={connecting}
-              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-400 disabled:opacity-60"
+              className="wax-press wax-sheen mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-indigo-500 to-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_16px_34px_-20px_rgba(99,102,241,1)] transition-colors hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-60"
             >
               <VideoIcon className="h-4 w-4" />
               {connecting ? "Connecting…" : "Join with camera"}
@@ -340,7 +414,7 @@ export default function RoomStage({
         ) : (
           <>
             <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-black">
+              <div className="relative overflow-hidden rounded-2xl border border-fg/[0.08] bg-black shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_40px_-34px_rgba(0,0,0,1)]">
                 <video
                   ref={localVideo}
                   autoPlay
@@ -348,7 +422,7 @@ export default function RoomStage({
                   muted
                   className="aspect-video w-full object-cover"
                 />
-                <span className="absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] text-slate-200">
+                <span className="absolute bottom-2 left-2 rounded-md border border-white/10 bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
                   You{camOn ? "" : " · camera off"}
                 </span>
               </div>
@@ -356,7 +430,7 @@ export default function RoomStage({
               {peers.map((peer) => (
                 <div
                   key={peer.id}
-                  className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-black"
+                  className="relative overflow-hidden rounded-2xl border border-fg/[0.08] bg-black shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_40px_-34px_rgba(0,0,0,1)]"
                 >
                   <video
                     ref={(node) => {
@@ -371,7 +445,7 @@ export default function RoomStage({
                       Connecting…
                     </span>
                   )}
-                  <span className="absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] text-slate-200">
+                  <span className="absolute bottom-2 left-2 rounded-md border border-white/10 bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
                     {peer.name}
                   </span>
                 </div>
@@ -385,14 +459,61 @@ export default function RoomStage({
               </p>
             )}
 
+            <section
+              aria-label="Room chat"
+              className="wax-panel mt-5 overflow-hidden"
+            >
+              <div className="max-h-48 space-y-1.5 overflow-y-auto px-4 py-3">
+                {chat.length === 0 && (
+                  <p className="text-[11px] text-slate-500">
+                    Messages here are visible to everyone in the room and are not
+                    saved after the call.
+                  </p>
+                )}
+                {chat.map((line) => (
+                  <p key={line.id} className="text-[11px] leading-relaxed">
+                    <span
+                      className={
+                        line.mine
+                          ? "font-semibold text-indigo-300"
+                          : "font-semibold text-slate-200"
+                      }
+                    >
+                      {line.name}
+                    </span>{" "}
+                    <span className="text-slate-400">{line.text}</span>
+                  </p>
+                ))}
+              </div>
+              <form
+                onSubmit={sendChat}
+                className="flex items-center gap-2 border-t border-fg/[0.06] px-3 py-2"
+              >
+                <input
+                  value={chatDraft}
+                  onChange={(event) => setChatDraft(event.target.value)}
+                  placeholder="Message the room…"
+                  aria-label="Message the room"
+                  className="min-w-0 flex-1 bg-transparent text-[12px] text-slate-200 placeholder:text-slate-500 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={!chatDraft.trim()}
+                  className="wax-press wax-sheen rounded-lg bg-gradient-to-b from-indigo-500 to-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition-colors hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50"
+                >
+                  Send
+                </button>
+              </form>
+            </section>
+
             <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={toggleMic}
-                className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold ${
+                className={`wax-press flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold ${
                   micOn
-                    ? "border border-white/[0.08] bg-white/[0.04] text-slate-200"
-                    : "bg-amber-500/20 text-amber-200"
+                    ? "border border-fg/[0.09] bg-fg/[0.035] text-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:border-fg/[0.16] hover:bg-fg/[0.075] hover:text-fg"
+                    : "border border-amber-400/30 bg-amber-500/15 text-amber-200"
                 }`}
               >
                 <MicIcon className="h-4 w-4" />
@@ -401,10 +522,10 @@ export default function RoomStage({
               <button
                 type="button"
                 onClick={toggleCamera}
-                className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold ${
+                className={`wax-press flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold ${
                   camOn
-                    ? "border border-white/[0.08] bg-white/[0.04] text-slate-200"
-                    : "bg-amber-500/20 text-amber-200"
+                    ? "border border-fg/[0.09] bg-fg/[0.035] text-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:border-fg/[0.16] hover:bg-fg/[0.075] hover:text-fg"
+                    : "border border-amber-400/30 bg-amber-500/15 text-amber-200"
                 }`}
               >
                 <VideoIcon className="h-4 w-4" />
@@ -413,7 +534,7 @@ export default function RoomStage({
               <button
                 type="button"
                 onClick={leave}
-                className="flex items-center gap-2 rounded-xl bg-rose-500/90 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-500"
+                className="wax-press flex items-center gap-2 rounded-xl bg-rose-500/90 px-4 py-2 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors hover:bg-rose-500"
               >
                 <PhoneIcon className="h-4 w-4" />
                 Leave

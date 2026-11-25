@@ -1,5 +1,10 @@
 import { getSessionUser } from "@/app/lib/auth/auth";
-import { joinRoom, leaveRoom, relay } from "@/app/lib/rooms/signaling";
+import {
+  broadcastRoom,
+  joinRoom,
+  leaveRoom,
+  relay,
+} from "@/app/lib/rooms/signaling";
 import { roomInWorkspace } from "@/app/lib/rooms/store";
 
 /**
@@ -34,6 +39,8 @@ export async function GET(
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      // A full room is reported by closing the stream; the client explains it.
+
       let closed = false;
 
       const send = (data: unknown) => {
@@ -70,13 +77,22 @@ export async function GET(
         }
       }, 15_000);
 
-      const existing = joinRoom(room, {
+      const joined = joinRoom(room, {
         id: peerId,
         name: user.name,
         send,
       });
 
-      send({ type: "roster", peers: existing, you: { id: peerId, name: user.name } });
+      if (!joined.ok) {
+        cleanup();
+        return;
+      }
+
+      send({
+        type: "roster",
+        peers: joined.peers,
+        you: { id: peerId, name: user.name },
+      });
       request.signal.addEventListener("abort", cleanup);
     },
     cancel() {
@@ -107,12 +123,31 @@ export async function POST(
   }
 
   const body = (await request.json().catch(() => null)) as {
+    type?: unknown;
     from?: unknown;
     to?: unknown;
     payload?: unknown;
+    text?: unknown;
   } | null;
 
   const from = typeof body?.from === "string" ? body.from : "";
+
+  // In-room chat travels over the same relay as signaling: it is ephemeral by
+  // design and the room's durable record is not a transcript.
+  if (body?.type === "chat") {
+    const text = typeof body.text === "string" ? body.text.trim().slice(0, 500) : "";
+    if (!from || !text) return new Response("Bad request", { status: 400 });
+
+    broadcastRoom(room, from, {
+      type: "chat",
+      from,
+      name: user.name,
+      text,
+      at: Date.now(),
+    });
+    return new Response(null, { status: 204 });
+  }
+
   const to = typeof body?.to === "string" ? body.to : "";
   if (!from || !to || !body?.payload) {
     return new Response("Bad request", { status: 400 });

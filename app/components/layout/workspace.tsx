@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type {
@@ -13,14 +14,20 @@ import type {
   WorkspaceData,
   WorkspaceUser,
 } from "@/app/lib/types";
-import { signOutAction } from "@/app/lib/auth/actions";
+import { UserButton } from "@clerk/nextjs";
+import {
+  deleteContactData,
+  exportContactData,
+} from "@/app/lib/privacy/actions";
 import {
   linkContactIdentityAction,
   mergeContactsAction,
   unlinkContactIdentityAction,
 } from "@/app/lib/contacts/actions";
 import {
+  retryMessageAction,
   sendMessageAction,
+  sendNoteAction,
   sendTemplateAction,
 } from "@/app/lib/inbox/actions";
 import {
@@ -37,8 +44,10 @@ import {
   CalendarIcon,
   ChartIcon,
   CheckIcon,
+  ClockIcon,
   InboxIcon,
   MoreIcon,
+  PanelLeftIcon,
   PhoneIcon,
   PlusIcon,
   SearchIcon,
@@ -46,22 +55,51 @@ import {
   UsersIcon,
   VideoIcon,
 } from "@/app/components/shared/icons";
-import { Avatar, ChannelTile, LiveDot, initials } from "@/app/components/shared/ui";
+import {
+  Avatar,
+  BrandMark,
+  ChannelTile,
+  LiveDot,
+  initials,
+} from "@/app/components/shared/ui";
+import inboxArt from "@/app/images/svgs/icon-inbox.svg";
+import chatBanner from "@/app/images/breadcrumb/ChatBc.png";
+import supportBanner from "@/app/images/background/customer-support-img.png";
 import type { TimeBlock, WeeklyHours } from "@/app/lib/calendar/rules";
+import type { CalendarTeamMember } from "@/app/lib/calendar/store";
 import CalendarPanel from "@/app/components/calendar/calendar-panel";
+import DeskSearch from "./desk-search";
+import ThemeToggle from "./theme-toggle";
 import InboxPanel from "@/app/components/inbox/inbox-panel";
+import ContactRail from "@/app/components/inbox/contact-rail";
+import ContactsPanel from "@/app/components/contacts/contacts-panel";
+import AnalyticsPanel, {
+  type AnalyticsReport,
+} from "@/app/components/analytics/analytics-panel";
 import CallsPanel from "@/app/components/calls/calls-panel";
 import MeetingsPanel from "@/app/components/meetings/meetings-panel";
 import RightRail from "@/app/components/layout/right-rail";
 import SettingsPanel from "@/app/components/settings/settings-panel";
+import SlaAlerts from "@/app/components/layout/sla-alerts";
 
-export type DeskTab = "inbox" | "calendar" | "calls" | "meetings" | "settings";
+export type DeskTab =
+  | "inbox"
+  | "calendar"
+  | "calls"
+  | "meetings"
+  | "contacts"
+  | "analytics"
+  | "settings";
 type TabId = DeskTab;
 
 export type CalendarData = {
   blocks: TimeBlock[];
   hours: WeeklyHours;
-  agents: { id: string; name: string }[];
+  team: CalendarTeamMember[];
+  /** The viewer's IANA zone: labels and day edges are read in it. */
+  timeZone: string;
+  /** Server instant for the team lane's per-member "today". */
+  nowTs: number;
   today: number;
   weekStart: number;
   weekLabel: string;
@@ -75,6 +113,8 @@ const tabs: { id: TabId; label: string; icon: typeof InboxIcon }[] = [
   { id: "calendar", label: "Calendar", icon: CalendarIcon },
   { id: "calls", label: "Calls", icon: PhoneIcon },
   { id: "meetings", label: "Meetings", icon: VideoIcon },
+  { id: "contacts", label: "Contacts", icon: UsersIcon },
+  { id: "analytics", label: "Analytics", icon: ChartIcon },
 ];
 
 const presenceDot: Record<PresenceStatus, string> = {
@@ -83,14 +123,35 @@ const presenceDot: Record<PresenceStatus, string> = {
   away: "bg-slate-500",
 };
 
+/** One icon per overview metric, in the reading order the store builds them. */
+const metricIcons: Record<string, typeof InboxIcon> = {
+  "Open conversations": InboxIcon,
+  "Median first reply": ClockIcon,
+  "Calls in progress": PhoneIcon,
+  "Meetings today": VideoIcon,
+};
+
+/**
+ * The rail is fixed on desktop, so hiding it is a layout preference rather than
+ * component state: it lives on the html element (restored before paint by the
+ * root layout) and the stylesheet moves the content column for it.
+ */
+function applySidebar(hidden: boolean) {
+  const value = hidden ? "hidden" : "shown";
+  document.documentElement.dataset.sidebar = value;
+  try {
+    localStorage.setItem("wax-sidebar", value);
+  } catch {
+    // Private mode: the rail still hides for this page view.
+  }
+}
+
 const secondaryNav: {
   label: string;
   icon: typeof UsersIcon;
   href: string;
   active?: TabId;
 }[] = [
-  { label: "Contacts", icon: UsersIcon, href: "/contacts" },
-  { label: "Analytics", icon: ChartIcon, href: "/analytics" },
   { label: "Settings", icon: SettingsIcon, href: "/settings", active: "settings" },
 ];
 
@@ -104,8 +165,10 @@ function matchesFilters(
 
   return [
     conversation.contact.name,
+    conversation.contact.handle,
     conversation.topic,
     conversation.contact.company,
+    conversation.channel,
   ].some((field) => field.toLowerCase().includes(needle));
 }
 
@@ -114,15 +177,21 @@ export default function Workspace({
   user,
   tab,
   initialChannel = "all",
+  initialQuery = "",
+  initialConversation = "",
   notice = null,
   calendar = null,
+  analytics = null,
 }: {
   data: WorkspaceData;
   user: WorkspaceUser;
   tab: DeskTab;
   initialChannel?: ChannelId | "all";
+  initialQuery?: string;
+  initialConversation?: string;
   notice?: string | null;
   calendar?: CalendarData | null;
+  analytics?: AnalyticsReport | null;
 }) {
   const {
     channels,
@@ -153,14 +222,18 @@ export default function Workspace({
     calls: summary.callsInProgress,
     meetings: summary.meetingsToday,
     calendar: 0,
+    contacts: contacts.length,
+    analytics: 0,
     settings: 0,
   };
 
   const [channelFilter, setChannelFilter] = useState<ChannelId | "all">(
     initialChannel,
   );
-  const [selectedId, setSelectedId] = useState(conversations[0]?.id ?? "");
-  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState(
+    initialConversation || conversations[0]?.id || "",
+  );
+  const [query, setQuery] = useState(initialQuery);
   const [draft, setDraft] = useState("");
   const [optimistic, setOptimistic] = useState<Record<string, Message[]>>({});
   const [sending, setSending] = useState(false);
@@ -170,6 +243,10 @@ export default function Workspace({
   const [live, setLive] = useState(false);
   const [activity, setActivity] = useState<RealtimeEvent[]>([]);
   const [bellOpen, setBellOpen] = useState(false);
+  const [mobileSearch, setMobileSearch] = useState(false);
+  const [noteMode, setNoteMode] = useState(false);
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   // Live channel: the server pushes messages, assignments, status changes and
   // SLA ticks, and every one refreshes the server-rendered dashboard. That is
@@ -244,6 +321,65 @@ export default function Workspace({
       ),
     [conversations, channelFilter, needle],
   );
+
+  // One search covers the three things the placeholder promises: people,
+  // threads and channels. Results are links, so a query can be shared.
+  const searchMatches = useMemo(() => {
+    if (!needle) return { conversations: [], contacts: [], channels: [] };
+    return {
+      conversations: conversations
+        .filter((conversation) => matchesFilters(conversation, "all", needle))
+        .slice(0, 5),
+      contacts: contacts
+        .filter((contact) =>
+          [
+            contact.name,
+            contact.handle,
+            contact.company,
+            ...contact.identities.map((identity) => identity.address),
+          ].some((field) => field.toLowerCase().includes(needle)),
+        )
+        .slice(0, 3),
+      channels: channels
+        .filter((channel) =>
+          `${channel.name} ${channel.id}`.toLowerCase().includes(needle),
+        )
+        .slice(0, 3),
+    };
+  }, [needle, conversations, contacts, channels]);
+
+  function runSearch() {
+    const value = query.trim();
+    if (!value) return;
+    router.push(`/inbox?q=${encodeURIComponent(value)}`);
+  }
+
+  function clearSearch() {
+    setQuery("");
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("q") || url.searchParams.has("conversation")) {
+      url.searchParams.delete("q");
+      url.searchParams.delete("conversation");
+      router.replace(`${url.pathname}${url.search}`);
+    }
+  }
+
+  function openConversation(id: string) {
+    setSelectedId(id);
+    setQuery("");
+    router.push(`/inbox?conversation=${id}`);
+  }
+
+  function searchFor(name: string) {
+    setQuery(name);
+    router.push(`/inbox?q=${encodeURIComponent(name)}`);
+  }
+
+  function filterChannel(id: ChannelId) {
+    setQuery("");
+    setChannelFilter(id);
+    router.push(`/inbox?channel=${id}`);
+  }
 
   const active =
     conversations.find((conversation) => conversation.id === selectedId) ??
@@ -396,6 +532,22 @@ export default function Workspace({
     setSending(true);
     setSendError(null);
 
+    if (noteMode) {
+      const note = await sendNoteAction(active.id, text);
+      setSending(false);
+      if (!note.ok) {
+        setSendError(note.error);
+        return;
+      }
+      setOptimistic((previous) => ({
+        ...previous,
+        [active.id]: [...(previous[active.id] ?? []), note.message],
+      }));
+      setDraft("");
+      router.refresh();
+      return;
+    }
+
     const nonce =
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
@@ -413,6 +565,68 @@ export default function Workspace({
       [active.id]: [...(previous[active.id] ?? []), result.message],
     }));
     setDraft("");
+    router.refresh();
+  }
+
+  async function exportContact() {
+    if (!active) return;
+    setWorkflowError(null);
+    const result = await exportContactData(active.contact.id);
+    if (!result.ok) {
+      setWorkflowError(result.error);
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(result.data, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${active.contact.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-export.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function deleteContact() {
+    if (!active) return;
+    if (
+      !window.confirm(
+        `Delete ${active.contact.name}, every thread and every message? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setWorkflowError(null);
+    const result = await deleteContactData(active.contact.id);
+    if (!result.ok) {
+      setWorkflowError(result.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function retryMessage(messageId: string) {
+    if (retrying) return;
+    setRetrying(messageId);
+    setSendError(null);
+    const result = await retryMessageAction(messageId);
+    setRetrying(null);
+
+    if (!result.ok) {
+      setSendError(result.error);
+      return;
+    }
+
+    // The retried row keeps its id, so swap it in rather than appending.
+    if (active) {
+      setOptimistic((previous) => ({
+        ...previous,
+        [active.id]: (previous[active.id] ?? []).map((message) =>
+          message.id === messageId ? result.message : message,
+        ),
+      }));
+    }
     router.refresh();
   }
 
@@ -445,37 +659,101 @@ export default function Workspace({
     router.refresh();
   }
 
+  // Keyboard: ⌘K/Ctrl+K jumps to search, Alt+1…5 switches sections and "?"
+  // lists the shortcuts. Nothing fires while the person is typing in a field.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const typing = Boolean(
+        target &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.isContentEditable),
+      );
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        const input = document.getElementById(
+          "desk-search-input",
+        ) as HTMLInputElement | null;
+        if (input) input.focus();
+        else setMobileSearch(true);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        setShortcutsOpen(false);
+        return;
+      }
+
+      if (typing) return;
+
+      if (event.altKey && /^[1-6]$/.test(event.key)) {
+        const target = tabs[Number(event.key) - 1];
+        if (target) {
+          event.preventDefault();
+          router.push(`/${target.id}`);
+        }
+        return;
+      }
+
+      if (event.key === "?") {
+        event.preventDefault();
+        setShortcutsOpen(true);
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [router]);
+
   return (
-    <div className="flex min-h-screen bg-[#08090b] text-slate-200">
-      <aside className="sticky top-0 hidden h-screen w-[258px] shrink-0 flex-col border-r border-white/[0.06] bg-[#0a0b0f] px-4 py-5 lg:flex">
-        <div className="flex items-center gap-2.5 px-1">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-sm font-bold text-white shadow-lg shadow-indigo-500/20">
-            w
-          </span>
+    <div className="wax-app flex min-h-screen text-slate-200">
+      <aside className="wax-sidebar wax-sidebar-shell fixed top-0 bottom-0 left-0 z-30 hidden h-screen w-[268px] flex-col overflow-y-auto border-r border-fg/[0.06] px-3 py-5 lg:flex">
+        <div className="flex items-center gap-2.5 px-2">
+          <BrandMark />
           <div className="leading-tight">
-            <p className="text-sm font-semibold tracking-tight text-white">Wax</p>
-            <p className="text-[11px] text-slate-500">Omnichannel desk</p>
+            <p className="text-[15px] font-semibold tracking-tight text-fg">Wax</p>
+            <p className="text-[10px] font-medium tracking-[0.12em] text-slate-500 uppercase">
+              Omnichannel
+            </p>
           </div>
+          <span className="ml-auto flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/[0.08] px-2 py-0.5 text-[9px] font-semibold tracking-[0.06em] text-emerald-300 uppercase">
+            <span className="h-1 w-1 rounded-full bg-emerald-400" />
+            Live
+          </span>
+          <button
+            type="button"
+            onClick={() => applySidebar(true)}
+            aria-label="Hide sidebar"
+            title="Hide sidebar"
+            className="wax-press rounded-md p-1 text-slate-500 transition-colors hover:bg-fg/5 hover:text-slate-200"
+          >
+            <PanelLeftIcon className="h-4 w-4" />
+          </button>
         </div>
 
         <Link
           href="/settings"
           title="Workspace settings"
-          className="mt-5 flex w-full items-center gap-2.5 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.06]"
+          className="wax-press mt-5 flex w-full items-center gap-2.5 rounded-xl border border-fg/[0.07] bg-fg/[0.022] px-2.5 py-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-colors hover:border-fg/[0.12] hover:bg-fg/[0.05]"
         >
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/10 text-[10px] font-semibold text-white">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/15 text-[10px] font-semibold text-indigo-200 ring-1 ring-indigo-400/25 ring-inset">
             {initials(user.workspaceName)}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs font-medium text-white">
+            <span className="block truncate text-[12px] font-medium text-fg">
               {user.workspaceName}
             </span>
-            <span className="block text-[10px] text-slate-500">Service desk</span>
+            <span className="block truncate text-[10px] text-slate-500">
+              Service desk
+            </span>
           </span>
           <ArrowUpRightIcon className="h-3.5 w-3.5 text-slate-500" />
         </Link>
 
-        <nav className="mt-6 space-y-1">
+        <p className="wax-eyebrow mt-6 mb-1.5 px-2.5">Desk</p>
+        <nav className="space-y-0.5">
           {tabs.map((item) => {
             const Icon = item.icon;
             const isActive = tab === item.id;
@@ -483,19 +761,29 @@ export default function Workspace({
               <Link
                 key={item.id}
                 href={`/${item.id}`}
-                className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors ${
+                aria-current={isActive ? "page" : undefined}
+                className={`group relative flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-[7px] text-[13px] transition-colors ${
                   isActive
-                    ? "bg-white/[0.07] font-medium text-white"
-                    : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
+                    ? "bg-fg/[0.07] font-medium text-fg shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                    : "text-slate-400 hover:bg-fg/[0.035] hover:text-slate-200"
                 }`}
               >
-                <Icon className="h-4 w-4" />
+                {isActive && (
+                  <span className="absolute top-1/2 left-0 h-4 w-[2.5px] -translate-y-1/2 rounded-r-full bg-indigo-400 shadow-[0_0_10px_1px_rgba(129,140,248,0.55)]" />
+                )}
+                <Icon
+                  className={`h-4 w-4 ${
+                    isActive
+                      ? "text-indigo-300"
+                      : "text-slate-500 group-hover:text-slate-300"
+                  }`}
+                />
                 <span className="flex-1 text-left">{item.label}</span>
                 <span
-                  className={`rounded-md px-1.5 py-0.5 text-[10px] ${
+                  className={`wax-num rounded-md px-1.5 py-0.5 text-[10px] ${
                     isActive
-                      ? "bg-indigo-500/20 text-indigo-200"
-                      : "bg-white/[0.06] text-slate-400"
+                      ? "bg-indigo-500/20 text-indigo-100 ring-1 ring-indigo-400/25 ring-inset"
+                      : "text-slate-500"
                   }`}
                 >
                   {tabCounts[item.id]}
@@ -505,15 +793,13 @@ export default function Workspace({
           })}
         </nav>
 
-        <div className="mt-6 mb-2 flex items-center justify-between px-3">
-          <span className="text-[10px] font-semibold tracking-[0.14em] text-slate-500 uppercase">
-            Channels
-          </span>
+        <div className="mt-6 mb-1.5 flex items-center justify-between px-2.5">
+          <span className="wax-eyebrow">Channels</span>
           <Link
             href="/connect"
             aria-label="Connect a channel"
             title="Connect a channel"
-            className="rounded-md p-1 text-slate-500 transition-colors hover:bg-white/5 hover:text-slate-200"
+            className="rounded-md p-1 text-slate-500 transition-colors hover:bg-fg/5 hover:text-slate-200"
           >
             <PlusIcon className="h-3.5 w-3.5" />
           </Link>
@@ -527,8 +813,10 @@ export default function Workspace({
               onClick={() => {
                 router.push(`/inbox?channel=${channel.id}`);
               }}
-              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-xs transition-colors hover:bg-white/[0.04] ${
-                channelFilter === channel.id ? "bg-white/[0.05]" : ""
+              className={`group flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-[6px] text-left text-[12px] transition-colors ${
+                channelFilter === channel.id
+                  ? "bg-fg/[0.06] text-fg shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                  : "text-slate-300 hover:bg-fg/[0.035]"
               }`}
             >
               <ChannelTile channel={channel} size="sm" />
@@ -537,18 +825,18 @@ export default function Workspace({
               </span>
               {channel.connected ? (
                 channel.unread > 0 ? (
-                  <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 text-[10px] text-slate-300">
+                  <span className="wax-num rounded-md bg-fg/[0.07] px-1.5 py-0.5 text-[10px] text-slate-200">
                     {channel.unread}
                   </span>
                 ) : (
-                  <CheckIcon className="h-3 w-3 text-emerald-400/70" />
+                  <CheckIcon className="h-3 w-3 text-emerald-400/60" />
                 )
               ) : (
                 <span
                   className={`text-[10px] font-medium ${
                     user.role === "agent"
                       ? "text-slate-500"
-                      : "text-indigo-400"
+                      : "text-slate-500 transition-colors group-hover:text-indigo-300"
                   }`}
                 >
                   {user.role === "agent" ? "Not linked" : "Connect"}
@@ -558,7 +846,8 @@ export default function Workspace({
           ))}
         </div>
 
-        <div className="mt-6 space-y-0.5 border-t border-white/[0.06] pt-4">
+        <p className="wax-eyebrow mt-6 mb-1.5 px-2.5">Workspace</p>
+        <div className="space-y-0.5">
           {secondaryNav.map((item) => {
             const Icon = item.icon;
             const isActive = item.active === tab;
@@ -566,20 +855,24 @@ export default function Workspace({
               <Link
                 key={item.label}
                 href={item.href}
-                className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+                className={`wax-press group flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-[7px] text-[13px] transition-colors ${
                   isActive
-                    ? "bg-white/[0.07] font-medium text-white"
-                    : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
+                    ? "bg-fg/[0.07] font-medium text-fg"
+                    : "text-slate-400 hover:bg-fg/[0.035] hover:text-slate-200"
                 }`}
               >
-                <Icon className="h-4 w-4" />
+                <Icon
+                  className={`h-4 w-4 ${
+                    isActive ? "text-indigo-300" : "text-slate-500"
+                  }`}
+                />
                 {item.label}
               </Link>
             );
           })}
         </div>
 
-        <div className="mt-auto flex items-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+        <div className="mt-auto flex items-center gap-2.5 rounded-xl border border-fg/[0.07] bg-fg/[0.022] px-2.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           <span className="relative">
             <Avatar initials={initials(user.name)} color="#6366f1" size="sm" />
             <span
@@ -587,7 +880,7 @@ export default function Workspace({
             />
           </span>
           <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-xs font-medium text-white">{user.name}</p>
+            <p className="truncate text-xs font-medium text-fg">{user.name}</p>
             <select
               value={presence}
               onChange={(event) =>
@@ -605,40 +898,58 @@ export default function Workspace({
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center gap-3 border-b border-white/[0.06] px-4 py-3.5 lg:px-6">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-xs font-bold text-white lg:hidden">
-            w
+      <div className="wax-content flex min-w-0 flex-1 flex-col">
+        <header className="wax-header wax-enter-soft sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-fg/[0.06] px-4 py-3 backdrop-blur-xl lg:px-7">
+          <span className="lg:hidden">
+            <BrandMark size="sm" />
           </span>
-          <div className="min-w-0">
-            <h1 className="text-base font-semibold tracking-tight text-white sm:text-lg">
-              {tab === "settings"
-                ? "Settings"
-                : tabs.find((item) => item.id === tab)?.label}
-            </h1>
-            <p className="text-[11px] text-slate-500">
-              {totalUnread} unread across {channels.length} channels · signed in
-              as {user.email}
+          <button
+            type="button"
+            onClick={() => applySidebar(false)}
+            aria-label="Show sidebar"
+            title="Show sidebar"
+            className="wax-sidebar-open wax-press hidden h-8 w-8 items-center justify-center rounded-lg border border-fg/[0.07] bg-fg/[0.03] text-slate-400 transition-colors hover:border-fg/[0.14] hover:text-fg"
+          >
+            <PanelLeftIcon className="h-4 w-4" />
+          </button>
+          <div className="leading-tight">
+            <p className="wax-eyebrow">Desk</p>
+            <p className="mt-1 truncate text-[13px] font-semibold tracking-tight text-fg">
+              {user.workspaceName}
             </p>
           </div>
 
           <div className="ml-auto flex items-center gap-2">
-            <label className="hidden items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-slate-400 transition-colors focus-within:border-indigo-500/40 md:flex">
+            <button
+              type="button"
+              onClick={() => setMobileSearch((open) => !open)}
+              aria-label="Open search"
+              aria-expanded={mobileSearch}
+              className="wax-press rounded-xl border border-fg/[0.07] bg-fg/[0.03] p-2 text-slate-400 transition-colors hover:text-fg md:hidden"
+            >
               <SearchIcon className="h-4 w-4" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search people, topics, channels"
-                className="w-56 bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
-              />
-            </label>
-            <span className="hidden items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1.5 text-[11px] font-medium text-emerald-300 sm:flex">
+            </button>
+            <DeskSearch
+              variant="inline"
+              query={query}
+              needle={needle}
+              matches={searchMatches}
+              channelMap={channelMap}
+              onQueryChange={setQuery}
+              onOpenConversation={openConversation}
+              onSearchFor={searchFor}
+              onFilterChannel={filterChannel}
+              onRunSearch={runSearch}
+              onClear={clearSearch}
+              onDismiss={() => setMobileSearch(false)}
+            />
+            <span className="hidden items-center gap-1.5 rounded-full border border-emerald-400/15 bg-emerald-400/[0.07] px-2.5 py-1 text-[11px] font-medium text-emerald-300 sm:flex">
               <LiveDot />
-              {summary.callsInProgress} calls live
+              <span className="wax-num">{summary.callsInProgress}</span> calls live
             </span>
             {summary.breachedSlas > 0 && (
               <span
-                className="hidden items-center gap-1.5 rounded-full border border-rose-400/20 bg-rose-400/10 px-2.5 py-1.5 text-[11px] font-medium text-rose-300 sm:flex"
+                className="hidden items-center gap-1.5 rounded-full border border-rose-400/20 bg-rose-400/[0.08] px-2.5 py-1 text-[11px] font-medium text-rose-300 sm:flex"
                 title="Unresolved conversations past their first-reply deadline"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
@@ -656,7 +967,7 @@ export default function Workspace({
                     ? "Live updates connected"
                     : "Reconnecting to live updates…"
                 }
-                className="relative rounded-xl border border-white/[0.07] bg-white/[0.03] p-2 text-slate-400 transition-colors hover:text-white"
+                className="wax-press relative grid h-9 w-9 place-items-center rounded-xl border border-fg/[0.07] bg-fg/[0.03] text-slate-400 transition-colors hover:border-fg/[0.14] hover:bg-fg/[0.06] hover:text-fg"
               >
                 <BellIcon className="h-4 w-4" />
                 <span
@@ -665,15 +976,15 @@ export default function Workspace({
                   }`}
                 />
                 {totalUnread > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-semibold text-white">
+                  <span className="wax-pop absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-semibold text-white">
                     {totalUnread > 99 ? "99+" : totalUnread}
                   </span>
                 )}
               </button>
 
               {bellOpen && (
-                <div className="absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0d0e12] shadow-xl shadow-black/40">
-                  <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2">
+                <div className="wax-drop absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-2xl border border-fg/[0.09] bg-[var(--wax-raised)] shadow-[0_30px_60px_-24px_rgba(0,0,0,1)]">
+                  <div className="flex items-center justify-between border-b border-fg/[0.06] px-3 py-2">
                     <p className="text-[11px] font-semibold tracking-[0.1em] text-slate-400 uppercase">
                       Live activity
                     </p>
@@ -690,7 +1001,7 @@ export default function Workspace({
                       {live ? "Live" : "Offline"}
                     </span>
                   </div>
-                  <ul className="max-h-64 divide-y divide-white/[0.04] overflow-y-auto">
+                  <ul className="wax-stagger max-h-64 divide-y divide-fg/[0.04] overflow-y-auto">
                     {activity.length === 0 ? (
                       <li className="px-3 py-6 text-center text-[11px] text-slate-500">
                         No new activity yet.
@@ -714,52 +1025,128 @@ export default function Workspace({
                       ))
                     )}
                   </ul>
-                  <div className="border-t border-white/[0.06] px-3 py-2 text-[10px] text-slate-500">
+                  <div className="border-t border-fg/[0.06] px-3 py-2 text-[10px] text-slate-500">
                     {totalUnread} unread · {summary.breachedSlas} SLA breached
                   </div>
                 </div>
               )}
             </div>
-            <form action={signOutAction}>
-              <button
-                type="submit"
-                className="rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-xs font-medium text-slate-300 transition-colors hover:border-indigo-500/40 hover:text-white"
-              >
-                Sign out
-              </button>
-            </form>
-            <Avatar initials={initials(user.name)} color="#6366f1" size="sm" />
+            <ThemeToggle />
+            <UserButton />
           </div>
         </header>
 
-        <main className="flex-1 space-y-4 p-4 lg:p-6">
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {metrics.map((metric) => (
-              <div
-                key={metric.label}
-                className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4"
-              >
-                <p className="text-[11px] text-slate-500">{metric.label}</p>
-                <p className="mt-1.5 text-2xl font-semibold tracking-tight text-white">
-                  {metric.value}
-                </p>
-                <p
-                  className={`mt-1 text-[11px] ${
-                    metric.tone === "up" ? "text-emerald-400/80" : "text-slate-500"
-                  }`}
-                >
-                  {metric.delta}
+        {mobileSearch && (
+          <div className="wax-drop border-b border-fg/[0.06] px-4 py-3 md:hidden">
+            <DeskSearch
+              variant="sheet"
+              query={query}
+              needle={needle}
+              matches={searchMatches}
+              channelMap={channelMap}
+              onQueryChange={setQuery}
+              onOpenConversation={openConversation}
+              onSearchFor={searchFor}
+              onFilterChannel={filterChannel}
+              onRunSearch={runSearch}
+              onClear={clearSearch}
+              onDismiss={() => setMobileSearch(false)}
+            />
+          </div>
+        )}
+
+        <main className="mx-auto w-full max-w-[1560px] flex-1 space-y-5 p-4 pb-28 lg:p-7">
+          <section className="wax-banner wax-enter-soft">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-[22px] leading-tight font-semibold tracking-tight text-fg">
+                  {tab === "settings"
+                    ? "Settings"
+                    : tabs.find((item) => item.id === tab)?.label}
+                </h1>
+                <p className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+                  <Link
+                    href="/inbox"
+                    className="transition-colors hover:text-fg"
+                  >
+                    Home
+                  </Link>
+                  <span aria-hidden className="text-slate-600">
+                    •
+                  </span>
+                  <span className="text-slate-300">
+                    {tab === "settings"
+                      ? "Settings"
+                      : tabs.find((item) => item.id === tab)?.label}
+                  </span>
                 </p>
               </div>
-            ))}
+              <div className="flex items-end gap-4">
+                <p className="text-[11px] text-slate-400">
+                  <span className="wax-num text-slate-200">{totalUnread}</span>{" "}
+                  unread across {channels.length} channels
+                </p>
+                <Image
+                  src={tab === "inbox" ? chatBanner : supportBanner}
+                  alt=""
+                  priority
+                  className="pointer-events-none hidden h-14 w-auto select-none sm:block"
+                />
+              </div>
+            </div>
+          </section>
+          <div className="flex justify-end empty:hidden">
+            <SlaAlerts conversations={conversations} />
+          </div>
+          <section className="wax-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {metrics.map((metric) => {
+              const Icon = metricIcons[metric.label] ?? ChartIcon;
+              return (
+                <div
+                  key={metric.label}
+                  className="wax-lift group relative overflow-hidden rounded-2xl border border-fg/[0.07] bg-gradient-to-b from-fg/[0.045] to-fg/[0.008] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                >
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute -top-14 -right-8 h-24 w-24 rounded-full bg-indigo-500/[0.09] blur-2xl transition-colors duration-300 group-hover:bg-indigo-500/[0.16]"
+                  />
+                  <div className="relative flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="wax-eyebrow">{metric.label}</p>
+                      <p className="wax-num mt-3 text-[26px] leading-none font-semibold text-fg">
+                        {metric.value}
+                      </p>
+                    </div>
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-indigo-400/25 bg-indigo-500/[0.12] text-indigo-500">
+                      <Icon className="h-[18px] w-[18px]" />
+                    </span>
+                  </div>
+                  <p
+                    className={`relative mt-3 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                      metric.tone === "up" ? "wax-pill-up" : "wax-pill-neutral"
+                    }`}
+                  >
+                    {metric.delta}
+                  </p>
+                </div>
+              );
+            })}
           </section>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <section className="overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+            {/* Keyed by tab so switching sections plays the entrance again. */}
+            <section key={tab} className="wax-panel wax-enter overflow-hidden">
               {tab === "inbox" && !active && (
                 <div className="px-6 py-16 text-center">
-                  <InboxIcon className="mx-auto h-7 w-7 text-slate-600" />
-                  <p className="mt-3 text-sm font-medium text-slate-200">
+                  <Image
+                    src={inboxArt}
+                    alt=""
+                    width={48}
+                    height={48}
+                    unoptimized
+                    className="mx-auto h-12 w-12"
+                  />
+                  <p className="mt-4 text-sm font-medium text-slate-100">
                     No conversations yet
                   </p>
                   <p className="mx-auto mt-1.5 max-w-sm text-[11px] leading-relaxed text-slate-500">
@@ -769,7 +1156,7 @@ export default function Workspace({
                   </p>
                   <Link
                     href="/connect"
-                    className="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-2 text-[11px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20"
+                    className="wax-press mt-5 inline-flex items-center gap-1.5 rounded-xl border border-indigo-400/25 bg-indigo-500/[0.12] px-3.5 py-2 text-[11px] font-semibold text-indigo-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-indigo-500/20"
                   >
                     Connect a channel
                   </Link>
@@ -791,6 +1178,8 @@ export default function Workspace({
                   onLinkIdentity={linkIdentity}
                   onUnlinkIdentity={unlinkIdentity}
                   onMergeContact={mergeContact}
+                  onExportContact={exportContact}
+                  onDeleteContact={deleteContact}
                   onSelect={setSelectedId}
                   draft={draft}
                   onDraftChange={setDraft}
@@ -798,19 +1187,26 @@ export default function Workspace({
                   onSendTemplate={sendTemplate}
                   sending={sending}
                   sendError={sendError}
+                  onRetry={retryMessage}
+                  retrying={retrying}
+                  noteMode={noteMode}
+                  onNoteModeChange={setNoteMode}
                   agents={agents}
                   queues={queues}
                   onAssign={changeAssignee}
                   onMoveQueue={changeQueue}
                   onStatusChange={changeStatus}
                   workflowError={workflowError}
+                  currentUserId={user.id}
                 />
               )}
               {tab === "calendar" && calendar && (
                 <CalendarPanel
                   blocks={calendar.blocks}
                   hours={calendar.hours}
-                  agents={calendar.agents}
+                  team={calendar.team}
+                  timeZone={calendar.timeZone}
+                  nowTs={calendar.nowTs}
                   me={{ id: user.id, name: user.name }}
                   today={calendar.today}
                   weekStart={calendar.weekStart}
@@ -838,6 +1234,17 @@ export default function Workspace({
                   summary={summary}
                 />
               )}
+              {tab === "contacts" && (
+                <ContactsPanel contacts={contacts} channels={channels} />
+              )}
+              {tab === "analytics" &&
+                (analytics ? (
+                  <AnalyticsPanel report={analytics} metrics={metrics} />
+                ) : (
+                  <p className="px-6 py-16 text-center text-xs text-slate-500">
+                    Analytics is unavailable right now.
+                  </p>
+                ))}
               {tab === "settings" && (
                 <SettingsPanel
                   user={user}
@@ -845,23 +1252,112 @@ export default function Workspace({
                   channels={channels}
                   connections={connections}
                   channelAudit={channelAudit}
+                  members={data.members}
+                  invites={data.invites}
                   notice={notice}
                 />
               )}
             </section>
 
-            <RightRail
-              meetings={meetings}
-              calls={calls}
-              channels={channels}
-              channelMap={channelMap}
-              agents={agents}
-              queues={queues}
-              onViewCalls={() => router.push("/calls")}
-            />
+            {/* The inbox keeps the right column for the open conversation's
+                contact and queue facts; every other tab keeps the desk rail. */}
+            {tab === "inbox" ? (
+              <ContactRail
+                contact={active.contact}
+                conversation={active}
+                identities={activeContact?.identities ?? []}
+                channelMap={channelMap}
+              />
+            ) : (
+              <RightRail
+                meetings={meetings}
+                calls={calls}
+                channels={channels}
+                channelMap={channelMap}
+                agents={agents}
+                queues={queues}
+                onViewCalls={() => router.push("/calls")}
+              />
+            )}
           </div>
         </main>
       </div>
+
+      <Link
+        href="/settings"
+        aria-label="Workspace settings"
+        title="Workspace settings"
+        className="wax-press fixed right-6 bottom-6 z-30 hidden h-12 w-12 place-items-center rounded-full bg-gradient-to-b from-indigo-400 to-indigo-600 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_18px_40px_-18px_rgba(45,72,170,0.95)] transition-colors hover:from-indigo-300 hover:to-indigo-500 lg:grid"
+      >
+        <SettingsIcon className="h-5 w-5" />
+      </Link>
+
+      <nav
+        aria-label="Sections"
+        className="fixed inset-x-0 bottom-0 z-30 flex border-t border-fg/[0.08] bg-[var(--wax-ink)] pb-[env(safe-area-inset-bottom)] shadow-[0_-20px_50px_-30px_rgba(0,0,0,1)] backdrop-blur-xl lg:hidden"
+      >
+        {tabs.map((item) => {
+          const Icon = item.icon;
+          const isActive = tab === item.id;
+          return (
+            <Link
+              key={item.id}
+              href={`/${item.id}`}
+              aria-current={isActive ? "page" : undefined}
+              className={`wax-press relative flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] transition-colors ${
+                isActive ? "text-fg" : "text-slate-500"
+              }`}
+            >
+              <span
+                aria-hidden
+                className="wax-nav-marker absolute top-0 h-0.5 w-8 rounded-full bg-indigo-400"
+              />
+              <Icon className="h-4 w-4" />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {shortcutsOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Keyboard shortcuts"
+          className="wax-modal-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setShortcutsOpen(false)}
+        >
+          <div
+            className="wax-modal-card w-full max-w-sm rounded-2xl border border-fg/[0.09] bg-[var(--wax-raised)] p-5 text-slate-200 shadow-[0_40px_80px_-40px_rgba(0,0,0,1)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-sm font-semibold text-fg">Keyboard shortcuts</p>
+            <ul className="mt-3 space-y-1.5 text-[11px]">
+              {[
+                ["⌘K / Ctrl K", "Focus search"],
+                ["Alt + 1…6", "Inbox, calendar, calls, meetings, contacts, analytics"],
+                ["Enter", "Open the first search result"],
+                ["Esc", "Clear search or close this panel"],
+                ["?", "Show these shortcuts"],
+              ].map(([keys, label]) => (
+                <li key={keys} className="flex items-center justify-between gap-3">
+                  <span className="text-slate-400">{label}</span>
+                  <kbd className="rounded border border-fg/[0.1] bg-fg/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                    {keys}
+                  </kbd>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => setShortcutsOpen(false)}
+              className="wax-press mt-4 w-full rounded-lg bg-indigo-500 px-3 py-2 text-[11px] font-semibold text-white hover:bg-indigo-400"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

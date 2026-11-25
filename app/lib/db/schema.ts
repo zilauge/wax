@@ -16,6 +16,8 @@ export const SCHEMA = `
 
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
+    -- Clerk owns credentials; this is the stable external id its session carries.
+    clerk_user_id TEXT UNIQUE,
     email TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     company TEXT,
@@ -23,6 +25,8 @@ export const SCHEMA = `
     password_salt TEXT NOT NULL,
     phone TEXT,
     phone_verified_at INTEGER,
+    -- IANA zone the person's calendar is read in, e.g. "Europe/London".
+    timezone TEXT,
     created_at INTEGER NOT NULL
   );
 
@@ -53,7 +57,6 @@ export const SCHEMA = `
     id TEXT NOT NULL,
     name TEXT NOT NULL,
     handle TEXT NOT NULL,
-    monogram TEXT NOT NULL,
     color TEXT NOT NULL,
     connected INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (workspace_id, id)
@@ -269,4 +272,55 @@ export const SCHEMA = `
     created_at INTEGER NOT NULL,
     closed_at INTEGER
   );
+
+  -- A pending invitation to join a workspace. Only the hash of the token is
+  -- stored, so a database leak cannot be replayed as an invite link.
+  CREATE TABLE IF NOT EXISTS invites (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'agent')),
+    token_hash TEXT NOT NULL UNIQUE,
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    accepted_at INTEGER,
+    accepted_by TEXT REFERENCES users(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS invites_workspace_idx
+    ON invites (workspace_id, created_at);
+
+  -- Fixed-window counters for the public endpoints that must not be hammered.
+  CREATE TABLE IF NOT EXISTS rate_limits (
+    key TEXT PRIMARY KEY,
+    count INTEGER NOT NULL,
+    window_start INTEGER NOT NULL
+  );
+
+  -- Remembers who received the last round-robin assignment per workspace.
+  CREATE TABLE IF NOT EXISTS routing_state (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+    last_user_id TEXT
+  );
+
+  -- Full-text index over message bodies. External content keeps the text in one
+  -- place; the triggers keep the index in step with inserts and deletes.
+  CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
+    USING fts5(body, content='messages', content_rowid='rowid');
+
+  CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts (rowid, body) VALUES (new.rowid, new.body);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_fts (messages_fts, rowid, body)
+      VALUES ('delete', old.rowid, old.body);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF body ON messages BEGIN
+    INSERT INTO messages_fts (messages_fts, rowid, body)
+      VALUES ('delete', old.rowid, old.body);
+    INSERT INTO messages_fts (rowid, body) VALUES (new.rowid, new.body);
+  END;
 `;

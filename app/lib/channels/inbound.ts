@@ -6,6 +6,7 @@ import {
   findIdentityInChannel,
 } from "@/app/lib/contacts/identities";
 import { normalizeIdentity } from "@/app/lib/contacts/identity";
+import { assignNewConversation } from "@/app/lib/routing/assign";
 import type { ChannelId } from "@/app/lib/types";
 
 export type InboundOutcome = "accepted" | "duplicate" | "ignored";
@@ -107,6 +108,10 @@ export function recordInboundMessage(
         receivedAt + slaMinutes * 60_000,
         receivedAt,
       );
+
+    // Route the arrival to an available teammate round-robin, so a queue full
+    // of unassigned threads does not pile up behind one person.
+    assignNewConversation(database, workspaceId, conversationId);
   }
 
   const inserted = database

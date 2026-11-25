@@ -17,6 +17,13 @@ type Rooms = Map<string, Map<string, Member>>;
 const globalForRooms = globalThis as unknown as { waxRooms?: Rooms };
 const rooms: Rooms = (globalForRooms.waxRooms ??= new Map());
 
+/**
+ * A mesh call sends every participant's media to every other participant, so
+ * the cap is what keeps a large meeting from melting laptops. It is stated in
+ * the room UI rather than enforced silently.
+ */
+export const MAX_PEERS = 6;
+
 function broadcast(roomId: string, except: string, data: unknown) {
   const room = rooms.get(roomId);
   if (!room) return;
@@ -29,11 +36,15 @@ function broadcast(roomId: string, except: string, data: unknown) {
 export function joinRoom(
   roomId: string,
   member: Member,
-): { id: string; name: string }[] {
+): { ok: true; peers: { id: string; name: string }[] } | { ok: false; full: true } {
   let room = rooms.get(roomId);
   if (!room) {
     room = new Map();
     rooms.set(roomId, room);
+  }
+
+  if (!room.has(member.id) && room.size >= MAX_PEERS) {
+    return { ok: false, full: true };
   }
 
   const existing = [...room.values()]
@@ -46,7 +57,7 @@ export function joinRoom(
     peer: { id: member.id, name: member.name },
   });
 
-  return existing;
+  return { ok: true, peers: existing };
 }
 
 export function leaveRoom(roomId: string, peerId: string) {
@@ -63,6 +74,11 @@ export function roster(roomId: string): Peer[] {
   return room
     ? [...room.values()].map(({ id, name }) => ({ id, name }))
     : [];
+}
+
+/** Delivers an in-room chat line to everyone except its author. */
+export function broadcastRoom(roomId: string, except: string, data: unknown) {
+  broadcast(roomId, except, data);
 }
 
 /** Delivers one signaling message; returns false when the peer has gone. */

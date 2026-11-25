@@ -1,8 +1,10 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { Channel, ChannelId, Meeting, Summary } from "@/app/lib/types";
 import { startRoomAction } from "@/app/lib/rooms/actions";
 import { PanelHeader, primaryButtonClass } from "@/app/components/shared/ui";
 import { VideoIcon } from "@/app/components/shared/icons";
+import meetingsArt from "@/app/images/svgs/icon-dd-date.svg";
 
 export default function MeetingsPanel({
   meetings,
@@ -27,14 +29,21 @@ export default function MeetingsPanel({
           </form>
         }
       />
-      <ul className="divide-y divide-white/[0.04]">
+      <ul className="divide-y divide-fg/[0.04]">
         {meetings.length === 0 && (
           <li className="px-4 py-12 text-center">
-            <VideoIcon className="mx-auto h-6 w-6 text-slate-600" />
-            <p className="mt-3 text-xs font-medium text-slate-300">
+            <Image
+              src={meetingsArt}
+              alt=""
+              width={48}
+              height={48}
+              unoptimized
+              className="mx-auto h-12 w-12"
+            />
+            <p className="mt-4 text-xs font-medium text-slate-100">
               No meetings scheduled
             </p>
-            <p className="mx-auto mt-1 max-w-xs text-[11px] leading-relaxed text-slate-500">
+            <p className="mx-auto mt-1.5 max-w-xs text-[11px] leading-relaxed text-slate-500">
               Start a room and share its link, or block time for a meeting in{" "}
               <Link
                 href="/calendar"
@@ -52,15 +61,15 @@ export default function MeetingsPanel({
           return (
             <li
               key={meeting.id}
-              className={`flex flex-wrap items-center gap-3 px-4 py-3.5 ${
-                isLive ? "bg-emerald-400/[0.04]" : ""
+              className={`flex flex-wrap items-center gap-3 px-4 py-3.5 transition-colors ${
+                isLive ? "bg-emerald-400/[0.04]" : "hover:bg-fg/[0.02]"
               }`}
             >
               <span
-                className={`flex w-14 shrink-0 flex-col items-center rounded-lg border px-2 py-1.5 ${
+                className={`flex w-14 shrink-0 flex-col items-center rounded-xl border px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${
                   isLive
                     ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
-                    : "border-white/[0.07] bg-white/[0.03] text-slate-300"
+                    : "border-fg/[0.07] bg-fg/[0.03] text-slate-300"
                 }`}
               >
                 <span className="text-[10px] tracking-wide uppercase">
@@ -71,7 +80,7 @@ export default function MeetingsPanel({
                 </span>
               </span>
               <div className="min-w-0">
-                <p className="truncate text-xs font-medium text-white">
+                <p className="truncate text-xs font-medium text-fg">
                   {meeting.title}
                 </p>
                 <p className="truncate text-[11px] text-slate-500">
@@ -83,7 +92,7 @@ export default function MeetingsPanel({
                 {meeting.attendees.map((attendee, index) => (
                   <span
                     key={attendee}
-                    className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-[#0d0e12] bg-white/10 text-[9px] font-semibold text-white first:ml-0"
+                    className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#0b0d12] bg-fg/10 text-[9px] font-semibold text-fg first:ml-0"
                     style={{ zIndex: meeting.attendees.length - index }}
                   >
                     {attendee}
@@ -95,7 +104,7 @@ export default function MeetingsPanel({
                 className={
                   isLive
                     ? "rounded-lg bg-emerald-500/90 px-3 py-1.5 text-[11px] font-semibold text-emerald-950 hover:bg-emerald-400"
-                    : "rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium text-slate-200 hover:bg-white/[0.08]"
+                    : "rounded-lg border border-fg/[0.08] bg-fg/[0.04] px-3 py-1.5 text-[11px] font-medium text-slate-200 hover:bg-fg/[0.08]"
                 }
               >
                 {isLive ? "Join now" : "Open room"}

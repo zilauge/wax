@@ -7,7 +7,9 @@ import { createRoom } from "@/app/lib/rooms/store";
 import {
   BLOCK_KINDS,
   conflictsFor,
+  isValidTimeZone,
   validateBlock,
+  zonedTimeLabel,
   type BlockKind,
   type WeeklyHours,
 } from "./rules";
@@ -16,6 +18,7 @@ import {
   insertBlock,
   listBlocks,
   saveWeeklyHours,
+  setUserTimeZone,
   weeklyHours,
 } from "./store";
 
@@ -40,13 +43,17 @@ export async function createBlockAction(input: {
     ? (input.kind as BlockKind)
     : "focus";
 
+  // The window belongs to the booker, so it is read in their own zone.
   const hours = weeklyHours(user.workspaceId, user.id);
-  const problem = validateBlock({
-    title: input.title,
-    startAt: input.startAt,
-    endAt: input.endAt,
-    hours,
-  });
+  const problem = validateBlock(
+    {
+      title: input.title,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      hours,
+    },
+    user.timeZone,
+  );
   if (problem) return { ok: false, error: problem };
 
   const from = Math.min(input.startAt, input.endAt) - 1;
@@ -61,9 +68,10 @@ export async function createBlockAction(input: {
   if (mine.length > 0) {
     return {
       ok: false,
-      error: `That clashes with “${mine[0].title}” at ${new Date(
+      error: `That clashes with “${mine[0].title}” at ${zonedTimeLabel(
         mine[0].startAt,
-      ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`,
+        user.timeZone,
+      )}.`,
     };
   }
 
@@ -143,4 +151,27 @@ export async function saveHoursAction(input: {
   saveWeeklyHours(user.workspaceId, user.id, hours);
   refresh();
   return { ok: true, notice: null };
+}
+
+/**
+ * Switches the zone this person's calendar is read in. Blocks are stored as
+ * instants, so nothing moves; their wall-clock labels and their working window
+ * are re-read against the new zone.
+ */
+export async function saveTimeZoneAction(timeZone: string): Promise<BlockResult> {
+  const user = await requireUser();
+
+  if (!isValidTimeZone(timeZone)) {
+    return { ok: false, error: "That time zone is not recognised." };
+  }
+  if (timeZone === user.timeZone) {
+    return { ok: true, notice: null };
+  }
+
+  if (!setUserTimeZone(user.workspaceId, user.id, timeZone)) {
+    return { ok: false, error: "That time zone could not be saved." };
+  }
+
+  refresh();
+  return { ok: true, notice: `Calendar now shows times in ${timeZone}.` };
 }

@@ -1,9 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import type { Agent, Call, Channel, ChannelId, Queue } from "@/app/lib/types";
 import { ChannelTile, PanelHeader, primaryButtonClass } from "@/app/components/shared/ui";
 import { ClockIcon, HeadphonesIcon, PlusIcon } from "@/app/components/shared/icons";
+import callsArt from "@/app/images/svgs/icon-dd-mobile.svg";
 
 const callStateStyles: Record<Call["state"], string> = {
   "on call": "border-emerald-400/25 bg-emerald-400/10 text-emerald-300",
@@ -12,7 +14,7 @@ const callStateStyles: Record<Call["state"], string> = {
 };
 
 const selectClass =
-  "max-w-[8.5rem] cursor-pointer rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
+  "max-w-[8.5rem] cursor-pointer rounded-md border border-fg/[0.08] bg-fg/[0.04] px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
 export default function CallsPanel({
   calls,
@@ -59,19 +61,26 @@ export default function CallsPanel({
       {workflowError && (
         <p
           role="alert"
-          className="border-b border-white/[0.06] px-4 py-2 text-[11px] text-rose-400"
+          className="border-b border-fg/[0.06] px-4 py-2 text-[11px] text-rose-400"
         >
           {workflowError}
         </p>
       )}
-      <ul className="divide-y divide-white/[0.04]">
+      <ul className="divide-y divide-fg/[0.04]">
         {calls.length === 0 && (
           <li className="px-4 py-12 text-center">
-            <HeadphonesIcon className="mx-auto h-6 w-6 text-slate-600" />
-            <p className="mt-3 text-xs font-medium text-slate-300">
+            <Image
+              src={callsArt}
+              alt=""
+              width={48}
+              height={48}
+              unoptimized
+              className="mx-auto h-12 w-12"
+            />
+            <p className="mt-4 text-xs font-medium text-slate-100">
               No calls in the queue
             </p>
-            <p className="mx-auto mt-1 max-w-xs text-[11px] leading-relaxed text-slate-500">
+            <p className="mx-auto mt-1.5 max-w-xs text-[11px] leading-relaxed text-slate-500">
               Inbound calls appear here once a phone channel is connected.{" "}
               <Link
                 href="/settings"
@@ -87,11 +96,11 @@ export default function CallsPanel({
           return (
             <li
               key={call.id}
-              className="flex flex-wrap items-center gap-3 px-4 py-3"
+              className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-fg/[0.02]"
             >
               <ChannelTile channel={channel} />
               <div className="min-w-0">
-                <p className="truncate text-xs font-medium text-white">
+                <p className="truncate text-xs font-medium text-fg">
                   {call.caller}
                 </p>
                 <p className="truncate text-[11px] text-slate-500">
@@ -145,7 +154,7 @@ export default function CallsPanel({
                   type="button"
                   disabled
                   title="Answering needs a telephony provider — connect a phone channel in settings"
-                  className="cursor-not-allowed rounded-lg border border-white/[0.08] bg-white/[0.04] p-1.5 text-slate-500"
+                  className="cursor-not-allowed rounded-lg border border-fg/[0.08] bg-fg/[0.04] p-1.5 text-slate-500"
                   aria-label={`Answer ${call.caller}`}
                 >
                   <HeadphonesIcon className="h-3.5 w-3.5" />
@@ -163,14 +172,16 @@ export default function CallsPanel({
           );
         })}
       </ul>
-      <div className="grid gap-3 border-t border-white/[0.06] p-4 sm:grid-cols-3">
+      <div className="grid gap-3 border-t border-fg/[0.06] p-4 sm:grid-cols-3">
         {callStats.map((stat) => (
           <div
             key={stat.label}
-            className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
+            className="wax-tile px-3 py-2.5"
           >
-            <p className="text-[10px] text-slate-500">{stat.label}</p>
-            <p className="text-sm font-semibold text-white">{stat.value}</p>
+            <p className="wax-eyebrow">{stat.label}</p>
+            <p className="wax-num mt-1.5 text-[15px] font-semibold text-fg">
+              {stat.value}
+            </p>
           </div>
         ))}
       </div>

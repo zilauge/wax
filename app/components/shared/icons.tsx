@@ -11,6 +11,32 @@ const base = {
   viewBox: "0 0 24 24",
 };
 
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m6 9.5 6 6 6-6" />
+    </svg>
+  );
+}
+
+export function MailIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="5.5" width="18" height="13" rx="2.5" />
+      <path d="m4.5 7.6 7.5 5.6 7.5-5.6" />
+    </svg>
+  );
+}
+
+export function MapPinIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 21c4-4.2 6-7.3 6-9.6a6 6 0 1 0-12 0C6 13.7 8 16.8 12 21Z" />
+      <circle cx="12" cy="11" r="2.1" />
+    </svg>
+  );
+}
+
 export function InboxIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>
@@ -155,6 +181,41 @@ export function BellIcon(props: IconProps) {
     <svg {...base} {...props}>
       <path d="M6.5 10a5.5 5.5 0 0 1 11 0c0 4 1.5 5.5 1.5 5.5H5S6.5 14 6.5 10Z" />
       <path d="M10 18.5a2.2 2.2 0 0 0 4 0" />
+    </svg>
+  );
+}
+
+export function PanelLeftIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3.5" y="4" width="17" height="16" rx="3" />
+      <path d="M9.5 4v16" />
+    </svg>
+  );
+}
+
+export function MoonIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+    </svg>
+  );
+}
+
+export function ContrastIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function SunIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.8v2M12 19.2v2M2.8 12h2M19.2 12h2M5.4 5.4l1.4 1.4M17.2 17.2l1.4 1.4M18.6 5.4l-1.4 1.4M6.8 17.2l-1.4 1.4" />
     </svg>
   );
 }

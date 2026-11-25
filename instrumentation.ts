@@ -12,4 +12,10 @@ export async function register() {
 
   const { startChannelPolling } = await import("@/app/lib/channels/sync");
   startChannelPolling();
+
+  const { startBackupScheduler } = await import("@/app/lib/db/backup");
+  startBackupScheduler();
+
+  const { startRetryLoop } = await import("@/app/lib/inbox/retry-job");
+  startRetryLoop();
 }

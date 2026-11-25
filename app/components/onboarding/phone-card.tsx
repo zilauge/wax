@@ -66,7 +66,7 @@ export default function PhoneCard({
   return (
     <section className="px-4 py-3">
       <div className="flex items-center justify-between pb-2">
-        <p className="text-[10px] font-semibold tracking-[0.12em] text-slate-500 uppercase">
+        <p className="wax-eyebrow">
           Mobile number
         </p>
         <span
@@ -103,13 +103,13 @@ export default function PhoneCard({
           placeholder="+14155550134"
           value={number}
           onChange={(event) => setNumber(event.target.value)}
-          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500/50 focus:outline-none"
+          className="min-w-0 flex-1 rounded-lg border border-fg/[0.08] bg-fg/[0.03] px-3 py-2 text-xs text-fg outline-none transition-colors placeholder:text-slate-500 focus:border-indigo-400/50 focus:bg-fg/[0.05]"
         />
         <button
           type="button"
           disabled={busy === "send"}
           onClick={sendCode}
-          className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-[11px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20 disabled:opacity-60"
+          className="wax-press inline-flex items-center rounded-lg border border-fg/[0.09] bg-fg/[0.035] px-3 py-2 text-[11px] font-semibold text-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:border-fg/[0.16] hover:bg-fg/[0.075] hover:text-fg disabled:opacity-60"
         >
           {busy === "send" ? "Sending…" : sentTo ? "Resend code" : "Send code"}
         </button>
@@ -126,13 +126,13 @@ export default function PhoneCard({
             placeholder="Six-digit code"
             value={code}
             onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
-            className="w-36 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-xs tracking-[0.2em] text-white placeholder-slate-500 focus:border-indigo-500/50 focus:outline-none"
+            className="w-36 rounded-lg border border-fg/[0.08] bg-fg/[0.03] px-3 py-2 font-mono text-xs tracking-[0.2em] text-fg outline-none transition-colors placeholder:text-slate-500 focus:border-indigo-400/50 focus:bg-fg/[0.05]"
           />
           <button
             type="button"
             disabled={busy === "verify" || code.length !== 6}
             onClick={verifyCode}
-            className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] font-medium text-emerald-200 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            className="wax-press wax-sheen inline-flex items-center rounded-lg bg-gradient-to-b from-indigo-500 to-indigo-600 px-3 py-2 text-[11px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition-colors hover:from-indigo-400 hover:to-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy === "verify" ? "Checking…" : "Verify"}
           </button>

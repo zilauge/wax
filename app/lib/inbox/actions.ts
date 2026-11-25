@@ -3,16 +3,12 @@
 import { randomUUID } from "node:crypto";
 import { refresh } from "next/cache";
 import { requireUser } from "@/app/lib/auth/auth";
-import { deliverTelegramMessage } from "@/app/lib/channels/telegram";
-import { deliverDiscordMessage } from "@/app/lib/channels/discord";
-import { deliverInstagramMessage } from "@/app/lib/channels/instagram";
-import { deliverSmsMessage } from "@/app/lib/channels/twilio";
-import { deliverXMessage } from "@/app/lib/channels/x";
-import { deliverYouTubeReply } from "@/app/lib/channels/youtube";
 import {
-  deliverWhatsAppMessage,
-  deliverWhatsAppTemplate,
-} from "@/app/lib/channels/whatsapp";
+  dispatchDelivery,
+  dispatchTemplate,
+  type Delivery,
+  type DeliveryTarget,
+} from "@/app/lib/inbox/delivery";
 import { noteConnectionError } from "@/app/lib/channels/connections";
 import { isReplyWindowOpen } from "@/app/lib/channels/window";
 import { db } from "@/app/lib/db/db";
@@ -22,10 +18,6 @@ import type { ChannelId, Message, MessageStatus } from "@/app/lib/types";
 export type SendMessageResult =
   | { ok: true; message: Message }
   | { ok: false; error: string };
-
-type Delivery =
-  | { status: "sent"; externalId?: string | null }
-  | { status: "failed"; error?: string };
 
 type ConversationRow = {
   channel_id: string;
@@ -194,13 +186,22 @@ function recordReply({
   });
 }
 
-/** Inbound YouTube messages store `youtube:<top-level comment id>`. */
-function youtubeParentCommentId(externalId: string | null) {
-  if (!externalId) return null;
-  const value = externalId.startsWith("youtube:")
-    ? externalId.slice("youtube:".length)
-    : externalId;
-  return value.trim() || null;
+function targetFor(
+  conversation: ConversationRow,
+  workspaceId: string,
+): DeliveryTarget {
+  return {
+    channel: String(conversation.channel_id),
+    channelName: String(conversation.channel_name),
+    telegramChatId: conversation.telegram_chat_id
+      ? String(conversation.telegram_chat_id)
+      : null,
+    address: conversation.address ? String(conversation.address) : null,
+    lastInboundExternalId: conversation.last_inbound_external_id
+      ? String(conversation.last_inbound_external_id)
+      : null,
+    workspaceId,
+  };
 }
 
 export async function sendMessageAction(
@@ -246,66 +247,10 @@ export async function sendMessageAction(
     }
   }
 
-  const delivery: Delivery =
-    channelId === "telegram"
-      ? await deliverTelegramMessage(
-          conversation.telegram_chat_id
-            ? String(conversation.telegram_chat_id)
-            : null,
-          text,
-        )
-      : channelId === "whatsapp"
-        ? await deliverWhatsAppMessage({
-            workspaceId: user.workspaceId,
-            address: conversation.address ? String(conversation.address) : null,
-            text,
-          })
-        : channelId === "instagram"
-          ? await deliverInstagramMessage({
-              workspaceId: user.workspaceId,
-              address: conversation.address
-                ? String(conversation.address)
-                : null,
-              text,
-            })
-          : channelId === "sms"
-            ? await deliverSmsMessage({
-                workspaceId: user.workspaceId,
-                address: conversation.address
-                  ? String(conversation.address)
-                  : null,
-                text,
-              })
-            : channelId === "discord"
-              ? await deliverDiscordMessage({
-                  workspaceId: user.workspaceId,
-                  address: conversation.address
-                    ? String(conversation.address)
-                    : null,
-                  text,
-                })
-              : channelId === "x"
-                ? await deliverXMessage({
-                    workspaceId: user.workspaceId,
-                    address: conversation.address
-                      ? String(conversation.address)
-                      : null,
-                    text,
-                  })
-                : channelId === "youtube"
-                  ? await deliverYouTubeReply({
-                      workspaceId: user.workspaceId,
-                      parentCommentId: youtubeParentCommentId(
-                        conversation.last_inbound_external_id
-                          ? String(conversation.last_inbound_external_id)
-                          : null,
-                      ),
-                      text,
-                    })
-                  : {
-                      status: "failed" as const,
-                      error: `${String(conversation.channel_name)} delivery is not wired yet.`,
-                    };
+  const delivery = await dispatchDelivery(
+    targetFor(conversation, user.workspaceId),
+    text,
+  );
 
   const message = recordReply({
     conversationId,
@@ -347,13 +292,10 @@ export async function sendTemplateAction(
     return { ok: false, error: "Templates can only be sent on a WhatsApp conversation." };
   }
 
-  const delivery = await deliverWhatsAppTemplate({
-    workspaceId: user.workspaceId,
-    address: conversation.address ? String(conversation.address) : null,
-    name,
-    language,
-    params,
-  });
+  const delivery = await dispatchTemplate(
+    targetFor(conversation, user.workspaceId),
+    { name, language, params },
+  );
 
   const message = recordReply({
     conversationId,
@@ -368,4 +310,178 @@ export async function sendTemplateAction(
 
   refresh();
   return { ok: true, message };
+}
+
+/**
+ * An internal note lives in the thread for teammates and is never handed to a
+ * provider. It deliberately does not clear unread or stop the SLA clock.
+ */
+export async function sendNoteAction(
+  conversationId: string,
+  body: string,
+): Promise<SendMessageResult> {
+  const user = await requireUser();
+  const text = body.trim();
+
+  if (!text) return { ok: false, error: "Write a note before saving." };
+  if (text.length > 4000) {
+    return { ok: false, error: "Notes are limited to 4000 characters." };
+  }
+
+  const conversation = loadConversation(conversationId, user.workspaceId);
+  if (!conversation) {
+    return { ok: false, error: "That conversation is not in your workspace." };
+  }
+
+  const id = randomUUID();
+  const at = Date.now();
+
+  db.prepare(
+    `INSERT INTO messages
+       (id, conversation_id, author, body, created_at, status, error, external_id, client_nonce, internal)
+     VALUES (?, ?, 'agent', ?, ?, 'sent', NULL, NULL, NULL, 1)`,
+  ).run(id, conversationId, text, at);
+
+  db.prepare(
+    "UPDATE conversations SET last_at = ? WHERE id = ? AND workspace_id = ?",
+  ).run(at, conversationId, user.workspaceId);
+
+  publishWorkspaceEvent(user.workspaceId, {
+    kind: "message",
+    conversationId,
+    text: `${user.name} left an internal note`,
+  });
+
+  refresh();
+  return {
+    ok: true,
+    message: {
+      id,
+      author: "agent",
+      text,
+      time: new Date(at).toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      at,
+      channel: String(conversation.channel_id) as ChannelId,
+      status: "sent",
+      error: null,
+      internal: true,
+      retryCount: 0,
+    },
+  };
+}
+
+/** Re-sends a reply that a provider refused, updating the same thread entry. */
+export async function retryMessageAction(
+  messageId: string,
+): Promise<SendMessageResult> {
+  const user = await requireUser();
+
+  const row = db
+    .prepare(
+      `SELECT m.id, m.conversation_id, m.body, m.status, m.internal, m.author,
+              m.retry_count
+       FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       WHERE m.id = ? AND c.workspace_id = ?`,
+    )
+    .get(messageId, user.workspaceId) as
+    | {
+        id: string;
+        conversation_id: string;
+        body: string;
+        status: string;
+        internal: number;
+        author: string;
+        retry_count: number;
+      }
+    | undefined;
+
+  if (!row) {
+    return { ok: false, error: "That message is not in your workspace." };
+  }
+  if (String(row.author) !== "agent" || Number(row.internal) === 1) {
+    return { ok: false, error: "Only your own replies can be retried." };
+  }
+  if (String(row.status) !== "failed") {
+    return { ok: false, error: "That message was already delivered." };
+  }
+
+  const conversationId = String(row.conversation_id);
+  const conversation = loadConversation(conversationId, user.workspaceId);
+  if (!conversation) {
+    return { ok: false, error: "That conversation is not in your workspace." };
+  }
+
+  const channelId = String(conversation.channel_id);
+  if (channelId === "whatsapp" || channelId === "instagram") {
+    const lastInbound = conversation.last_inbound_at
+      ? Number(conversation.last_inbound_at)
+      : null;
+    if (!isReplyWindowOpen(lastInbound)) {
+      return {
+        ok: false,
+        error: "The reply window closed, so this message can no longer be sent.",
+      };
+    }
+  }
+
+  const text = String(row.body);
+  const delivery = await dispatchDelivery(
+    targetFor(conversation, user.workspaceId),
+    text,
+  );
+  const at = Date.now();
+
+  db.prepare(
+    `UPDATE messages
+     SET status = ?, error = ?, external_id = ?, retry_count = retry_count + 1,
+         last_attempt_at = ?
+     WHERE id = ?`,
+  ).run(
+    delivery.status,
+    delivery.status === "failed" ? (delivery.error ?? null) : null,
+    delivery.status === "sent" ? (delivery.externalId ?? null) : null,
+    at,
+    messageId,
+  );
+
+  if (delivery.status === "sent") {
+    db.prepare(
+      `UPDATE conversations
+       SET last_at = ?,
+           first_response_at = COALESCE(first_response_at, ?)
+       WHERE id = ? AND workspace_id = ?`,
+    ).run(at, at, conversationId, user.workspaceId);
+  }
+
+  noteConnectionError(
+    user.workspaceId,
+    channelId as ChannelId,
+    delivery.status === "failed" ? (delivery.error ?? null) : null,
+  );
+
+  publishWorkspaceEvent(user.workspaceId, {
+    kind: "message",
+    conversationId,
+    text:
+      delivery.status === "sent"
+        ? `${user.name}'s retry was delivered on ${String(conversation.channel_name)}`
+        : `A retry failed again on ${String(conversation.channel_name)}`,
+  });
+
+  refresh();
+  return {
+    ok: true,
+    message: toAgentMessage({
+      id: messageId,
+      text,
+      at,
+      channel: channelId,
+      status: delivery.status,
+      error: delivery.status === "failed" ? delivery.error : undefined,
+    }),
+  };
 }

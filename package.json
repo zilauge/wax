@@ -4,13 +4,17 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:lan": "next dev --hostname 0.0.0.0 -p 53062",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test tests/channel-rules.test.ts tests/calendar-rules.test.ts",
+    "test": "node --test tests/channel-rules.test.ts tests/calendar-rules.test.ts tests/db-schema.test.ts",
+    "db:backup": "node scripts/backup.mjs",
+    "db:demo-contacts": "node scripts/seed-demo-contacts.mjs",
     "telegram:bind": "node --env-file-if-exists=.env.local scripts/bind-telegram.mjs"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.10.7",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0"

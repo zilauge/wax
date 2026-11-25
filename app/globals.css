@@ -1,8 +1,115 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------
+   Themes
+
+   Night is the navy workspace from the reference screens: a deep blue
+   canvas, slightly lifted panels and one blue accent. Dark is the graphite
+   variant the desk shipped with. Every surface reads its colour from these
+   tokens, so switching themes is a data attribute, not a second stylesheet.
+   --------------------------------------------------------------------- */
+
 :root {
-  --background: #08090b;
-  --foreground: #e6e9ee;
+  --wax-ink: #090f1c;
+  --wax-base: #101a2e;
+  --wax-raised: #16203a;
+  --wax-line: rgba(255, 255, 255, 0.08);
+  --wax-line-soft: rgba(255, 255, 255, 0.05);
+
+  --wax-accent-soft: rgba(91, 124, 245, 0.16);
+  --wax-accent-500: #5b7cf5;
+  --wax-accent-600: #4a66e0;
+
+  --wax-glow-1: rgba(91, 124, 245, 0.16);
+  --wax-glow-2: rgba(126, 86, 223, 0.1);
+  --wax-banner-glow: rgba(91, 124, 245, 0.22);
+  --wax-shadow: 0 42px 70px -60px rgba(3, 7, 18, 1);
+
+  /* One ink per status hue. On the dark canvases this is the bright pastel the
+     components were written against; light swaps in the deep step so the same
+     text-emerald-300 / text-amber-200 markup stays readable on white. */
+  --wax-tone-accent: #a8bbff;
+  --wax-tone-positive: #6ee7b7;
+  --wax-tone-warn: #fcd34d;
+  --wax-tone-danger: #fda4af;
+  --wax-tone-info: #7dd3fc;
+  /* Outgoing chat bubble: the one surface that stays green in every theme. */
+  --wax-bubble-out: rgba(110, 231, 183, 0.14);
+
+  --wax-fg: #ffffff;
+  --wax-muted: rgba(148, 163, 184, 0.78);
+
+  --wax-slate-200: #e2e8f0;
+  --wax-slate-300: #cbd5e1;
+  --wax-slate-400: #94a3b8;
+  --wax-slate-500: #64748b;
+  --wax-slate-600: #475569;
+
+  /* The page canvas and its default text are the same ink as the chrome, so
+     unclassed text matches text-fg instead of drifting a shade off. */
+  --background: var(--wax-ink);
+  --foreground: var(--wax-fg);
+}
+
+/* Dark is graphite. It only restates what differs from the night defaults
+   above, so there is one place to change a shared value. */
+[data-theme="dark"] {
+  --wax-ink: #07080b;
+  --wax-base: #0a0b0f;
+  --wax-raised: #0e1015;
+  --wax-line: rgba(255, 255, 255, 0.07);
+  --wax-line-soft: rgba(255, 255, 255, 0.045);
+
+  --wax-accent-soft: rgba(124, 108, 246, 0.14);
+  --wax-accent-500: #7c6cf6;
+  --wax-accent-600: #6757e8;
+
+  --wax-glow-1: rgba(99, 102, 241, 0.11);
+  --wax-glow-2: rgba(168, 85, 247, 0.065);
+  --wax-banner-glow: rgba(124, 108, 246, 0.18);
+  --wax-shadow: 0 42px 70px -60px rgba(0, 0, 0, 1);
+
+  --wax-tone-accent: #c4b8ff;
+  --wax-bubble-out: rgba(110, 231, 183, 0.12);
+}
+
+/* Light is the Minimal palette: a #F4F7FB canvas, pure white cards, ink text
+   and the #5D87FF accent. The same markup serves all three themes. */
+[data-theme="light"] {
+  --wax-ink: #f4f7fb;
+  --wax-base: #ffffff;
+  --wax-raised: #ffffff;
+  --wax-line: rgba(15, 23, 42, 0.09);
+  --wax-line-soft: rgba(15, 23, 42, 0.06);
+
+  --wax-accent-soft: rgba(93, 135, 255, 0.12);
+  --wax-accent-500: #5d87ff;
+  --wax-accent-600: #4a72e8;
+
+  --wax-glow-1: rgba(93, 135, 255, 0.1);
+  --wax-glow-2: rgba(147, 180, 255, 0.14);
+  --wax-banner-glow: rgba(93, 135, 255, 0.16);
+  --wax-shadow:
+    0 1px 2px rgba(145, 158, 171, 0.16),
+    0 12px 28px -18px rgba(145, 158, 171, 0.55);
+
+  --wax-fg: #1d2b3a;
+  --wax-muted: #6b7a90;
+
+  /* Status ink on white: the 600–700 step of each hue, which holds contrast
+     both on a card and on the 10–25% tinted chips these labels sit in. */
+  --wax-tone-accent: #3f63e8;
+  --wax-tone-positive: #047857;
+  --wax-tone-warn: #b45309;
+  --wax-tone-danger: #be123c;
+  --wax-tone-info: #0369a1;
+  --wax-bubble-out: #dcfce7;
+
+  --wax-slate-200: #253347;
+  --wax-slate-300: #465269;
+  --wax-slate-400: #5a6a85;
+  --wax-slate-500: #6b7a90;
+  --wax-slate-600: #8a97a9;
 }
 
 @theme inline {
@@ -10,21 +117,94 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Ink and the neutral scale follow the theme, so the same chrome class
+     reads as white-on-navy or ink-on-white. */
+  --color-fg: var(--wax-fg);
+  --color-slate-100: var(--wax-fg);
+  --color-slate-200: var(--wax-slate-200);
+  --color-slate-300: var(--wax-slate-300);
+  --color-slate-400: var(--wax-slate-400);
+  --color-slate-500: var(--wax-slate-500);
+  --color-slate-600: var(--wax-slate-600);
+
+  /* One accent across the desk. Solid fills use the 500/600 steps; the 50–400
+     steps are used as text and borders, so they read from the accent ink. */
+  --color-indigo-50: var(--wax-tone-accent);
+  --color-indigo-100: var(--wax-tone-accent);
+  --color-indigo-200: var(--wax-tone-accent);
+  --color-indigo-300: var(--wax-tone-accent);
+  --color-indigo-400: var(--wax-tone-accent);
+  --color-indigo-500: var(--wax-accent-500);
+  --color-indigo-600: var(--wax-accent-600);
+  --color-violet-500: var(--wax-accent-500);
+  --color-violet-600: var(--wax-accent-600);
+
+  /* Status text and tints resolve through the same inks, so a status pill keeps
+     its meaning in every theme instead of turning white-on-white in light. */
+  --color-emerald-50: var(--wax-tone-positive);
+  --color-emerald-100: var(--wax-tone-positive);
+  --color-emerald-200: var(--wax-tone-positive);
+  --color-emerald-300: var(--wax-tone-positive);
+  --color-emerald-400: var(--wax-tone-positive);
+  --color-amber-50: var(--wax-tone-warn);
+  --color-amber-100: var(--wax-tone-warn);
+  --color-amber-200: var(--wax-tone-warn);
+  --color-amber-300: var(--wax-tone-warn);
+  --color-rose-200: var(--wax-tone-danger);
+  --color-rose-300: var(--wax-tone-danger);
+  --color-rose-400: var(--wax-tone-danger);
+  --color-sky-50: var(--wax-tone-info);
+  --color-sky-300: var(--wax-tone-info);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Ambient depth: two very soft light sources, fixed so panels scroll over
+   them rather than dragging the glow along. */
+.wax-app {
+  background-color: var(--wax-ink);
+  background-image:
+    radial-gradient(1100px 520px at 8% -12%, var(--wax-glow-1), transparent 62%),
+    radial-gradient(900px 460px at 102% -4%, var(--wax-glow-2), transparent 58%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent 220px);
+  background-attachment: fixed;
 }
 
 ::selection {
-  background: rgba(99, 102, 241, 0.35);
+  background: var(--wax-accent-soft);
+}
+
+/* A visible keyboard focus ring on every control, without changing mouse
+   clicks; the desk is used with a keyboard for long shifts. */
+:focus-visible {
+  outline: 2px solid var(--wax-accent-500);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    /* Stagger delays would otherwise hold an element in its "from" state. */
+    animation-delay: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+  scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -33,12 +213,188 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.22);
+  background: rgba(148, 163, 184, 0.18);
   border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.3);
 }
 
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ---------------------------------------------------------------------
+   Surfaces
+
+   Every panel is the same recipe: a hairline, a barely-there top highlight
+   that reads as a bevel, a low vertical gradient and one large soft shadow.
+   Keeping it in one class is what makes the desk feel machined instead of
+   assembled from a dozen slightly different cards.
+   --------------------------------------------------------------------- */
+
+.wax-panel {
+  border: 1px solid var(--wax-line);
+  border-radius: 18px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.045),
+      rgba(255, 255, 255, 0.014) 40%,
+      rgba(255, 255, 255, 0.007)
+    ),
+    var(--wax-base);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    var(--wax-shadow);
+}
+
+/* The breadcrumb banner above the content column: same panel recipe with a
+   wide accent wash at the top edge, as in the reference screens. */
+.wax-banner {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--wax-line);
+  border-radius: 18px;
+  padding: 20px 22px;
+  background:
+    radial-gradient(760px 200px at 4% -30%, var(--wax-banner-glow), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012)),
+    var(--wax-base);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    var(--wax-shadow);
+}
+
+.wax-tile {
+  border: 1px solid var(--wax-line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--wax-fg) 2.2%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.wax-tile-soft {
+  border: 1px solid var(--wax-line-soft);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--wax-fg) 1.4%, transparent);
+}
+
+.wax-sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.024), transparent 240px),
+    var(--wax-base);
+}
+
+.wax-header {
+  /* Veil over the scrolling content; the element carries backdrop-blur. */
+  background: color-mix(in srgb, var(--wax-ink) 80%, transparent);
+}
+
+.wax-eyebrow {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--wax-muted);
+}
+
+/* Numbers that do not jitter as live counts change. */
+.wax-num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+}
+
+.wax-divide > * + * {
+  border-top: 1px solid var(--wax-line-soft);
+}
+
+/* Trend pills on the overview cards, tinted per theme so the caption keeps its
+   contrast on both white and navy. */
+.wax-pill-up {
+  border: 1px solid color-mix(in srgb, var(--wax-tone-positive) 34%, transparent);
+  background: color-mix(in srgb, var(--wax-tone-positive) 12%, transparent);
+  color: var(--wax-tone-positive);
+}
+
+.wax-pill-neutral {
+  border: 1px solid var(--wax-line);
+  background: color-mix(in srgb, var(--wax-fg) 1.4%, transparent);
+  color: var(--wax-muted);
+}
+
+/* Theme switch: the active segment follows the html theme attribute, so it is
+   right on the first paint and needs no client state. */
+.wax-theme-option {
+  color: var(--wax-muted);
+}
+
+.wax-theme-option:hover {
+  color: var(--wax-fg);
+}
+
+[data-theme="night"] .wax-theme-option[data-theme-option="night"],
+[data-theme="dark"] .wax-theme-option[data-theme-option="dark"] {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="light"] .wax-theme-option[data-theme-option="light"] {
+  background: var(--wax-accent-500);
+  color: #fff;
+  box-shadow: 0 6px 14px -8px rgba(93, 135, 255, 0.9);
+}
+
+/* Sidebar: fixed on desktop, and hideable by the person using it. The content
+   column owns the offset, so hiding the rail hands the whole width back rather
+   than leaving a gap. The choice lives on the html element and is restored by
+   the root layout before the first paint. */
+@media (min-width: 1024px) {
+  .wax-content {
+    padding-left: 268px;
+    transition: padding-left var(--wax-normal) var(--wax-ease);
+  }
+
+  .wax-sidebar-shell {
+    transition:
+      transform var(--wax-normal) var(--wax-ease),
+      opacity var(--wax-normal) var(--wax-ease),
+      visibility var(--wax-normal);
+  }
+
+  [data-sidebar="hidden"] .wax-content {
+    padding-left: 0;
+  }
+
+  /* Visibility keeps the rail's links out of the tab order while it is shut. */
+  [data-sidebar="hidden"] .wax-sidebar-shell {
+    transform: translateX(-100%);
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+  }
+
+  [data-sidebar="hidden"] .wax-sidebar-open {
+    display: inline-flex;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Motion layer
+
+   One shared easing and three durations, so every surface in the desk moves
+   the same way. Everything here is a pure CSS animation or transition: no
+   JS timers, nothing that can desync from server-rendered state, and the
+   reduced-motion block above neutralises all of it.
+   --------------------------------------------------------------------- */
+
+:root {
+  --wax-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --wax-quick: 150ms;
+  --wax-normal: 240ms;
+  --wax-slow: 380ms;
 }
 
 @keyframes wax-ping {
@@ -61,3 +417,242 @@ body {
   background: currentColor;
   animation: wax-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
+
+@keyframes wax-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wax-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes wax-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wax-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wax-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.75);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes wax-sweep {
+  from {
+    transform: translateX(-140%) skewX(-12deg);
+  }
+  to {
+    transform: translateX(240%) skewX(-12deg);
+  }
+}
+
+@keyframes wax-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Surfaces arriving: panels on tab change, cards on first paint. */
+.wax-enter {
+  animation: wax-rise var(--wax-slow) var(--wax-ease) backwards;
+}
+
+.wax-enter-soft {
+  animation: wax-fade-in var(--wax-normal) ease backwards;
+}
+
+/* Popovers, menus and sheets. */
+.wax-drop {
+  animation: wax-drop-in var(--wax-normal) var(--wax-ease) backwards;
+  transform-origin: top right;
+}
+
+.wax-sheet {
+  animation: wax-sheet-in var(--wax-normal) var(--wax-ease) backwards;
+}
+
+.wax-modal-backdrop {
+  animation: wax-fade-in var(--wax-quick) ease backwards;
+}
+
+.wax-modal-card {
+  animation: wax-rise var(--wax-normal) var(--wax-ease) backwards;
+}
+
+/* A badge or count appearing. */
+.wax-pop {
+  animation: wax-pop-in 320ms var(--wax-ease) backwards;
+}
+
+/* Lists that animate their children in reading order. */
+.wax-stagger > * {
+  animation: wax-rise var(--wax-slow) var(--wax-ease) backwards;
+}
+
+.wax-stagger > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.wax-stagger > *:nth-child(2) {
+  animation-delay: 30ms;
+}
+.wax-stagger > *:nth-child(3) {
+  animation-delay: 60ms;
+}
+.wax-stagger > *:nth-child(4) {
+  animation-delay: 90ms;
+}
+.wax-stagger > *:nth-child(5) {
+  animation-delay: 120ms;
+}
+.wax-stagger > *:nth-child(6) {
+  animation-delay: 150ms;
+}
+.wax-stagger > *:nth-child(7) {
+  animation-delay: 180ms;
+}
+.wax-stagger > *:nth-child(n + 8) {
+  animation-delay: 210ms;
+}
+
+/* Hover and press feedback. */
+.wax-lift {
+  transition:
+    transform var(--wax-normal) var(--wax-ease),
+    box-shadow var(--wax-normal) var(--wax-ease),
+    border-color var(--wax-normal) ease,
+    background-color var(--wax-normal) ease;
+}
+
+.wax-lift:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--wax-fg) 16%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 22px 44px -32px rgba(0, 0, 0, 1),
+    0 0 0 1px var(--wax-accent-soft);
+}
+
+.wax-lift:focus-within {
+  transform: translateY(-1px);
+}
+
+.wax-press {
+  transition:
+    transform var(--wax-quick) var(--wax-ease),
+    background-color var(--wax-quick) ease,
+    border-color var(--wax-quick) ease,
+    color var(--wax-quick) ease,
+    box-shadow var(--wax-quick) ease;
+}
+
+.wax-press:active {
+  transform: scale(0.97);
+}
+
+/* A light sweep across primary actions on hover. */
+.wax-sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.wax-sheen::after {
+  content: "";
+  position: absolute;
+  inset: -40% -20%;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.26) 50%,
+    transparent 70%
+  );
+  transform: translateX(-140%) skewX(-12deg);
+  pointer-events: none;
+}
+
+.wax-sheen:hover::after,
+.wax-sheen:focus-visible::after {
+  animation: wax-sweep 750ms var(--wax-ease);
+}
+
+/* Calendar blocks: lift out of the grid on hover. */
+.wax-block {
+  transition:
+    transform var(--wax-quick) var(--wax-ease),
+    box-shadow var(--wax-quick) ease,
+    filter var(--wax-quick) ease;
+}
+
+.wax-block:hover {
+  transform: translateY(-1px) scale(1.015);
+  box-shadow: 0 10px 22px -14px rgba(0, 0, 0, 0.9);
+  z-index: 10;
+}
+
+/* The live indicator breathes instead of pinging where a ping would nag. */
+.wax-breathe {
+  animation: wax-breathe 3.4s ease-in-out infinite;
+}
+
+/* Bottom-nav active marker growing out from the centre. */
+.wax-nav-marker {
+  transition:
+    opacity var(--wax-normal) var(--wax-ease),
+    transform var(--wax-normal) var(--wax-ease);
+  transform: scaleX(0);
+  opacity: 0;
+}
+
+[aria-current="page"] .wax-nav-marker {
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+
+
+
+
+
+

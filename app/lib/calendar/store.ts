@@ -3,6 +3,7 @@ import "server-only";
 import { db } from "@/app/lib/db/db";
 import {
   defaultWeeklyHours,
+  resolveTimeZone,
   type BlockKind,
   type TimeBlock,
   type WeeklyHours,
@@ -17,6 +18,7 @@ function toBlock(row: Record<string, unknown>): TimeBlock {
     id: text(row.id),
     userId: text(row.user_id),
     userName: text(row.user_name),
+    userTimeZone: row.user_timezone ? text(row.user_timezone) : null,
     title: text(row.title),
     kind: text(row.kind) as BlockKind,
     startAt: Number(row.start_at),
@@ -30,8 +32,8 @@ function toBlock(row: Record<string, unknown>): TimeBlock {
 export function listBlocks(workspaceId: string, from: number, to: number) {
   return db
     .prepare(
-      `SELECT b.id, b.user_id, u.name AS user_name, b.title, b.kind,
-              b.start_at, b.end_at, b.note, b.room_id
+      `SELECT b.id, b.user_id, u.name AS user_name, u.timezone AS user_timezone,
+              b.title, b.kind, b.start_at, b.end_at, b.note, b.room_id
        FROM calendar_blocks b
        JOIN users u ON u.id = b.user_id
        WHERE b.workspace_id = ? AND b.start_at < ? AND b.end_at > ?
@@ -100,6 +102,56 @@ export function weeklyHours(workspaceId: string, userId: string): WeeklyHours {
     };
   }
   return hours;
+}
+
+/** The server clock, read outside the component so rendering stays pure. */
+export function calendarNow() {
+  return Date.now();
+}
+
+export type CalendarTeamMember = {
+  id: string;
+  name: string;
+  timeZone: string;
+  hours: WeeklyHours;
+};
+
+/**
+ * Teammates with the zone their calendar is read in and their own working
+ * window. The team lane needs both: a block in Tokyo is only "today" in Tokyo.
+ */
+export function listCalendarTeam(workspaceId: string): CalendarTeamMember[] {
+  return db
+    .prepare(
+      `SELECT u.id, u.name, u.timezone
+       FROM memberships m
+       JOIN users u ON u.id = m.user_id
+       WHERE m.workspace_id = ?
+       ORDER BY u.name`,
+    )
+    .all(workspaceId)
+    .map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      timeZone: resolveTimeZone(row.timezone ? String(row.timezone) : null),
+      hours: weeklyHours(workspaceId, String(row.id)),
+    }));
+}
+
+/** Sets the caller's own zone; the membership check keeps it workspace-scoped. */
+export function setUserTimeZone(
+  workspaceId: string,
+  userId: string,
+  timeZone: string,
+) {
+  const member = db
+    .prepare("SELECT 1 FROM memberships WHERE workspace_id = ? AND user_id = ?")
+    .get(workspaceId, userId);
+  if (!member) return 0;
+
+  return db
+    .prepare("UPDATE users SET timezone = ? WHERE id = ?")
+    .run(timeZone, userId).changes;
 }
 
 /** Replaces the whole week, so clearing a day is the same write as moving it. */

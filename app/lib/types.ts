@@ -12,7 +12,6 @@ export type Channel = {
   id: ChannelId;
   name: string;
   handle: string;
-  monogram: string;
   color: string;
   connected: boolean;
   /** Whether the server holds the credentials needed to start a connection. */
@@ -62,6 +61,10 @@ export type Message = {
   /** Delivery outcome for agent messages; seeded inbound messages are "sent". */
   status: MessageStatus;
   error?: string | null;
+  /** An internal note for the team: stored with the thread, never delivered. */
+  internal?: boolean;
+  /** Failed sends can be retried; this is how many attempts were made. */
+  retryCount?: number;
 };
 
 export type ConversationStatus = "open" | "pending" | "resolved";
@@ -86,6 +89,8 @@ export type WorkspaceContact = Contact & {
   /** The channel of its most recent thread, used for avatars and filters. */
   channel: ChannelId;
   identities: ContactIdentity[];
+  /** The most recent thread, so the directory can open the conversation. */
+  threadId: string | null;
 };
 
 export type PresenceStatus = "available" | "busy" | "away";
@@ -180,6 +185,8 @@ export type WorkspaceUser = {
   /** The mobile number used for calls, and whether its one-time code passed. */
   phone: string | null;
   phoneVerified: boolean;
+  /** IANA zone this person's calendar and working hours are read in. */
+  timeZone: string;
 };
 
 /** Headline totals that the metric cards and navigation badges share. */
@@ -223,6 +230,26 @@ export type RealtimeEvent = {
 };
 
 /** Everything the dashboard renders, read from a single server-side load. */
+export type TeamRole = "owner" | "admin" | "agent";
+
+export type TeamMember = {
+  id: string;
+  name: string;
+  email: string;
+  role: TeamRole;
+  presence: PresenceStatus;
+  openConversations: number;
+};
+
+export type PendingInvite = {
+  id: string;
+  email: string;
+  role: TeamRole;
+  createdAt: number;
+  expiresAt: number;
+  expired: boolean;
+};
+
 export type WorkspaceData = {
   channels: Channel[];
   connections: ChannelConnection[];
@@ -236,4 +263,6 @@ export type WorkspaceData = {
   channelAudit: ChannelAuditEntry[];
   metrics: Metric[];
   summary: Summary;
+  members: TeamMember[];
+  invites: PendingInvite[];
 };

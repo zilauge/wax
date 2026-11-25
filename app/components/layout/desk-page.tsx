@@ -1,7 +1,13 @@
 import { requireUser } from "@/app/lib/auth/auth";
+import { buildReport, parseRange } from "@/app/lib/analytics/report";
 import { escalateBreaches } from "@/app/lib/workspace/escalation";
 import { getWorkspaceData } from "@/app/lib/workspace/store";
-import { listBlocks, weeklyHours } from "@/app/lib/calendar/store";
+import {
+  calendarNow,
+  listBlocks,
+  listCalendarTeam,
+  weeklyHours,
+} from "@/app/lib/calendar/store";
 import { addDays, calendarWindow } from "@/app/lib/calendar/rules";
 import Workspace, { type CalendarData, type DeskTab } from "./workspace";
 
@@ -20,6 +26,9 @@ export default async function DeskPage({
     error?: string;
     connected?: string;
     week?: string;
+    q?: string;
+    conversation?: string;
+    range?: string;
   }>;
 }) {
   const user = await requireUser();
@@ -42,7 +51,8 @@ export default async function DeskPage({
   // request rather than carried by every page.
   let calendar: CalendarData | null = null;
   if (tab === "calendar") {
-    const window = calendarWindow(params.week);
+    // The week, its day edges and every label follow the viewer's own zone.
+    const window = calendarWindow(params.week, user.timeZone);
     calendar = {
       blocks: listBlocks(
         user.workspaceId,
@@ -50,7 +60,9 @@ export default async function DeskPage({
         addDays(window.weekStart, 7),
       ),
       hours: weeklyHours(user.workspaceId, user.id),
-      agents: data.agents.map((agent) => ({ id: agent.id, name: agent.name })),
+      team: listCalendarTeam(user.workspaceId),
+      timeZone: user.timeZone,
+      nowTs: calendarNow(),
       today: window.today,
       weekStart: window.weekStart,
       weekLabel: window.weekLabel,
@@ -60,12 +72,20 @@ export default async function DeskPage({
     };
   }
 
+  const analytics =
+    tab === "analytics"
+      ? buildReport(user.workspaceId, parseRange(params.range))
+      : null;
+
   return (
     <Workspace
       data={data}
       user={user}
       tab={tab}
+      analytics={analytics}
       initialChannel={initialChannel}
+      initialQuery={params.q ?? ""}
+      initialConversation={params.conversation ?? ""}
       notice={notice}
       calendar={calendar}
     />

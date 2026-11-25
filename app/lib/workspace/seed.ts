@@ -12,17 +12,16 @@ import type { ChannelId } from "@/app/lib/types";
 const channels: {
   id: ChannelId;
   name: string;
-  monogram: string;
   color: string;
 }[] = [
-  { id: "instagram", name: "Instagram", monogram: "Ig", color: "#e1306c" },
-  { id: "tiktok", name: "TikTok", monogram: "Tk", color: "#25f4ee" },
-  { id: "whatsapp", name: "WhatsApp", monogram: "Wa", color: "#25d366" },
-  { id: "x", name: "X", monogram: "X", color: "#e7e9ea" },
-  { id: "sms", name: "SMS", monogram: "Sms", color: "#f22f46" },
-  { id: "discord", name: "Discord", monogram: "Dc", color: "#5865f2" },
-  { id: "telegram", name: "Telegram", monogram: "Tg", color: "#2aabee" },
-  { id: "youtube", name: "YouTube", monogram: "Yt", color: "#ff0033" },
+  { id: "instagram", name: "Instagram", color: "#e1306c" },
+  { id: "tiktok", name: "TikTok", color: "#25f4ee" },
+  { id: "whatsapp", name: "WhatsApp", color: "#25d366" },
+  { id: "x", name: "X", color: "#e7e9ea" },
+  { id: "sms", name: "SMS", color: "#f22f46" },
+  { id: "discord", name: "Discord", color: "#5865f2" },
+  { id: "telegram", name: "Telegram", color: "#2aabee" },
+  { id: "youtube", name: "YouTube", color: "#ff0033" },
 ];
 
 const queues = [
@@ -59,16 +58,10 @@ export function provisionWorkspace({
   ).run(workspaceId, userId);
 
   const insertChannel = db.prepare(
-    "INSERT INTO channels (workspace_id, id, name, handle, monogram, color, connected) VALUES (?, ?, ?, '', ?, ?, 0)",
+    "INSERT INTO channels (workspace_id, id, name, handle, color, connected) VALUES (?, ?, ?, '', ?, 0)",
   );
   for (const channel of channels) {
-    insertChannel.run(
-      workspaceId,
-      channel.id,
-      channel.name,
-      channel.monogram,
-      channel.color,
-    );
+    insertChannel.run(workspaceId, channel.id, channel.name, channel.color);
   }
 
   const insertQueue = db.prepare(

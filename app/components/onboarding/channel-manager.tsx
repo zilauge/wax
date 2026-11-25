@@ -53,11 +53,23 @@ function linkedOn(timestamp: number | null) {
 const statusStyle: Record<"connected" | "error" | "off", string> = {
   connected: "border-emerald-400/25 bg-emerald-400/10 text-emerald-300",
   error: "border-rose-400/25 bg-rose-400/10 text-rose-300",
-  off: "border-white/10 bg-white/[0.03] text-slate-400",
+  off: "border-fg/10 bg-fg/[0.03] text-slate-400",
 };
 
 const fieldClass =
-  "w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-slate-200 outline-none placeholder:text-slate-600 focus:border-indigo-400/40";
+  "w-full rounded-lg border border-fg/[0.08] bg-fg/[0.03] px-2.5 py-1.5 text-[11px] text-slate-200 outline-none transition-colors placeholder:text-slate-600 focus:border-indigo-400/50 focus:bg-fg/[0.05]";
+
+const actionPrimary =
+  "wax-press wax-sheen inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-indigo-500 to-indigo-600 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition-colors hover:from-indigo-400 hover:to-indigo-500 disabled:cursor-not-allowed disabled:opacity-60";
+
+const actionSecondary =
+  "wax-press inline-flex items-center gap-1.5 rounded-lg border border-fg/[0.09] bg-fg/[0.035] px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:border-fg/[0.16] hover:bg-fg/[0.075] hover:text-fg disabled:opacity-60";
+
+const actionDanger =
+  "wax-press inline-flex items-center gap-1.5 rounded-lg border border-fg/[0.09] bg-fg/[0.035] px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:border-rose-400/40 hover:bg-rose-500/10 hover:text-rose-200 disabled:opacity-60";
+
+const submitPrimary =
+  "wax-press wax-sheen w-full rounded-lg bg-gradient-to-b from-indigo-500 to-indigo-600 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition-colors hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-60";
 
 /**
  * Link and unlink the workspace's social accounts. A channel can only be
@@ -222,11 +234,11 @@ export default function ChannelManager({
   return (
     <section>
       <div className="flex items-center justify-between px-4 pt-2 pb-1">
-        <p className="text-[10px] font-semibold tracking-[0.12em] text-slate-500 uppercase">
+        <p className="wax-eyebrow">
           Social accounts
         </p>
         <span className="text-[10px] text-slate-500">
-          {connections.length} linked
+          <span className="wax-num">{connections.length}</span> linked
         </span>
       </div>
 
@@ -244,7 +256,7 @@ export default function ChannelManager({
         </p>
       )}
 
-      <ul className="divide-y divide-white/[0.04]">
+      <ul className="divide-y divide-fg/[0.04]">
         {socialChannels.map((id) => {
           const channel = channelFor(id);
           const connection = connections.find((item) => item.channel === id);
@@ -254,10 +266,10 @@ export default function ChannelManager({
           return (
             <li
               key={id}
-              className="flex flex-wrap items-center gap-3 px-4 py-3"
+              className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-fg/[0.015]"
             >
               <span
-                className="flex h-8 w-8 items-center justify-center rounded-lg"
+                className="flex h-8 w-8 items-center justify-center rounded-[10px]"
                 style={channelTileStyle(channel?.color ?? "#94a3b8")}
               >
                 <ChannelMark channel={id} className="h-4 w-4" />
@@ -330,7 +342,7 @@ export default function ChannelManager({
                       type="button"
                       disabled={syncing}
                       onClick={() => void syncNow()}
-                      className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-slate-300 transition-colors hover:border-indigo-400/40 hover:text-indigo-200 disabled:opacity-60"
+                      className={actionSecondary}
                     >
                       {syncing ? "Syncing…" : "Sync now"}
                     </button>
@@ -339,7 +351,7 @@ export default function ChannelManager({
                     type="button"
                     disabled={pending}
                     onClick={() => disconnect(id)}
-                    className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-slate-300 transition-colors hover:border-rose-400/40 hover:text-rose-300 disabled:opacity-60"
+                    className={actionDanger}
                   >
                     Disconnect
                   </button>
@@ -349,14 +361,14 @@ export default function ChannelManager({
                   type="button"
                   disabled={working}
                   onClick={() => connect(id)}
-                  className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  className={actionPrimary}
                 >
                   {working ? "Opening…" : "Connect"}
                 </button>
               )}
 
               {!connected && id === "x" && canManage && (
-                <div className="w-full border-t border-white/[0.04] pt-2">
+                <div className="w-full border-t border-fg/[0.04] pt-2">
                   <button
                     type="button"
                     onClick={() => setXKeysOpen((open) => !open)}
@@ -369,7 +381,7 @@ export default function ChannelManager({
 
                   {xKeysOpen && (
                     <form
-                      className="mt-2 space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
+                      className="mt-2 space-y-2 rounded-xl border border-fg/[0.06] bg-fg/[0.02] p-3"
                       onSubmit={(event) => {
                         event.preventDefault();
                         void connectXKeys();
@@ -407,7 +419,7 @@ export default function ChannelManager({
                       <button
                         type="submit"
                         disabled={busy === "x"}
-                        className="w-full rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20 disabled:opacity-60"
+                        className={submitPrimary}
                       >
                         {busy === "x" ? "Checking with X…" : "Link keys"}
                       </button>
@@ -427,16 +439,16 @@ export default function ChannelManager({
       </ul>
 
       <div className="flex items-center justify-between px-4 pt-4 pb-1">
-        <p className="text-[10px] font-semibold tracking-[0.12em] text-slate-500 uppercase">
+        <p className="wax-eyebrow">
           Bots and phone
         </p>
       </div>
 
-      <ul className="divide-y divide-white/[0.04]">
-        <li className="px-4 py-3">
+      <ul className="divide-y divide-fg/[0.04]">
+        <li className="px-4 py-3 transition-colors hover:bg-fg/[0.015]">
           <div className="flex flex-wrap items-center gap-3">
             <span
-              className="flex h-8 w-8 items-center justify-center rounded-lg"
+              className="flex h-8 w-8 items-center justify-center rounded-[10px]"
               style={channelTileStyle(discordChannel?.color ?? "#5865f2")}
             >
               <ChannelMark channel="discord" className="h-4 w-4" />
@@ -491,7 +503,7 @@ export default function ChannelManager({
                   type="button"
                   disabled={syncing}
                   onClick={() => void syncNow()}
-                  className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-slate-300 transition-colors hover:border-indigo-400/40 hover:text-indigo-200 disabled:opacity-60"
+                  className={actionSecondary}
                 >
                   {syncing ? "Syncing…" : "Sync now"}
                 </button>
@@ -499,7 +511,7 @@ export default function ChannelManager({
                   type="button"
                   disabled={pending}
                   onClick={() => disconnect("discord")}
-                  className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-slate-300 transition-colors hover:border-rose-400/40 hover:text-rose-300 disabled:opacity-60"
+                  className={actionDanger}
                 >
                   Disconnect
                 </button>
@@ -512,7 +524,7 @@ export default function ChannelManager({
                   setNotice(null);
                   setDiscordOpen((open) => !open);
                 }}
-                className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20"
+                className={actionPrimary}
               >
                 {discordOpen ? "Cancel" : "Connect"}
               </button>
@@ -521,7 +533,7 @@ export default function ChannelManager({
 
           {discordOpen && !discordConnection && canManage && (
             <form
-              className="mt-3 space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
+              className="wax-tile-soft mt-3 space-y-2 p-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 void connectDiscord();
@@ -542,7 +554,7 @@ export default function ChannelManager({
               <button
                 type="submit"
                 disabled={busy === "discord"}
-                className="w-full rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20 disabled:opacity-60"
+                className={submitPrimary}
               >
                 {busy === "discord" ? "Checking with Discord…" : "Link bot"}
               </button>
@@ -557,10 +569,10 @@ export default function ChannelManager({
           )}
         </li>
 
-        <li className="px-4 py-3">
+        <li className="px-4 py-3 transition-colors hover:bg-fg/[0.015]">
           <div className="flex flex-wrap items-center gap-3">
             <span
-              className="flex h-8 w-8 items-center justify-center rounded-lg"
+              className="flex h-8 w-8 items-center justify-center rounded-[10px]"
               style={channelTileStyle(smsChannel?.color ?? "#f22f46")}
             >
               <ChannelMark channel="sms" className="h-4 w-4" />
@@ -614,7 +626,7 @@ export default function ChannelManager({
                 type="button"
                 disabled={pending}
                 onClick={() => disconnect("sms")}
-                className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-slate-300 transition-colors hover:border-rose-400/40 hover:text-rose-300 disabled:opacity-60"
+                className={actionDanger}
               >
                 Disconnect
               </button>
@@ -626,7 +638,7 @@ export default function ChannelManager({
                   setNotice(null);
                   setSmsOpen((open) => !open);
                 }}
-                className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20"
+                className={actionPrimary}
               >
                 {smsOpen ? "Cancel" : "Connect"}
               </button>
@@ -635,7 +647,7 @@ export default function ChannelManager({
 
           {smsOpen && !smsConnection && canManage && (
             <form
-              className="mt-3 space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
+              className="wax-tile-soft mt-3 space-y-2 p-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 void connectSms();
@@ -683,7 +695,7 @@ export default function ChannelManager({
               <button
                 type="submit"
                 disabled={busy === "sms"}
-                className="w-full rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20 disabled:opacity-60"
+                className={submitPrimary}
               >
                 {busy === "sms" ? "Checking with Twilio…" : "Link number"}
               </button>
@@ -701,7 +713,7 @@ export default function ChannelManager({
         </li>
       </ul>
 
-      <p className="mx-4 mt-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-[10px] leading-relaxed text-slate-500">
+      <p className="wax-tile-soft mx-4 mt-3 px-3 py-2.5 text-[10px] leading-relaxed text-slate-500">
         Connecting opens the provider&apos;s own consent screen. Callback and
         webhook URLs must be registered with each app:
         <span className="mt-1 block font-mono text-slate-400">

@@ -9,10 +9,10 @@ import type {
 } from "@/app/lib/types";
 
 const inputClass =
-  "w-36 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[11px] text-slate-200 placeholder:text-slate-500 focus:border-indigo-500/40 focus:outline-none";
+  "w-36 rounded-md border border-fg/[0.08] bg-fg/[0.04] px-2 py-0.5 text-[11px] text-slate-200 placeholder:text-slate-500 focus:border-indigo-500/40 focus:outline-none";
 
 const smallButtonClass =
-  "rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[10px] font-medium text-slate-200 transition-colors hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-50";
+  "rounded-md border border-fg/[0.08] bg-fg/[0.05] px-2 py-0.5 text-[10px] font-medium text-slate-200 transition-colors hover:bg-fg/[0.1] disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * The identity strip under the thread header: every address this customer is
@@ -49,7 +49,7 @@ export default function ContactIdentityStrip({
   const channelMap = new Map(channels.map((item) => [item.id, item]));
 
   return (
-    <div className="border-b border-white/[0.06] px-4 py-2">
+    <div className="border-b border-fg/[0.06] px-4 py-2">
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="mr-1 text-[10px] tracking-[0.12em] text-slate-600 uppercase">
           Identities
@@ -64,7 +64,7 @@ export default function ContactIdentityStrip({
           return (
             <span
               key={identity.id}
-              className="flex items-center gap-1 rounded-full border border-white/[0.09] bg-white/[0.04] px-2 py-0.5"
+              className="flex items-center gap-1 rounded-full border border-fg/[0.09] bg-fg/[0.04] px-2 py-0.5"
             >
               <span
                 className="font-medium"
@@ -105,7 +105,7 @@ export default function ContactIdentityStrip({
             value={channel}
             onChange={(event) => setChannel(event.target.value as ChannelId)}
             aria-label="Identity channel"
-            className="cursor-pointer rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none"
+            className="cursor-pointer rounded-md border border-fg/[0.08] bg-fg/[0.04] px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none"
           >
             {channels.map((item) => (
               <option key={item.id} value={item.id}>
@@ -139,7 +139,7 @@ export default function ContactIdentityStrip({
               value={target}
               onChange={(event) => setTarget(event.target.value)}
               aria-label="Merge into contact"
-              className="max-w-[180px] cursor-pointer rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none"
+              className="max-w-[180px] cursor-pointer rounded-md border border-fg/[0.08] bg-fg/[0.04] px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none"
             >
               <option value="">Merge into…</option>
               {mergeCandidates.map((contact) => (

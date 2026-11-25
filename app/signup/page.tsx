@@ -1,11 +1,15 @@
-import type { Metadata } from "next";
-import Signup from "@/app/components/auth/signup";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { requestOrigin } from "@/app/lib/auth/clerk-hosted";
 
-export const metadata: Metadata = {
-  title: "Create account — Wax",
-  description: "Create your Wax omnichannel workspace.",
-};
+export const instant = false;
 
-export default function SignupPage() {
-  return <Signup />;
+/** Old links land on Clerk's hosted sign-up and return to the desk. */
+export default async function SignupPage() {
+  const origin = requestOrigin(await headers());
+  const target = origin
+    ? `/sign-up?redirect_url=${encodeURIComponent(`${origin}/inbox`)}`
+    : "/sign-up";
+
+  redirect(target);
 }
